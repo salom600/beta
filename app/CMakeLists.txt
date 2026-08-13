@@ -52,7 +52,7 @@ target_link_libraries(beta_editor PRIVATE
 # Rust's std pulls in NT primitives (NtReadFile, NtCreateFile, ...) on
 # Windows. They live in ntdll.lib, which MSVC does not link by default.
 if(WIN32)
-    target_link_libraries(beta_editor PRIVATE ntdll ws2_32 userenv bcrypt sync advapi32)
+    target_link_libraries(beta_editor PRIVATE ntdll ws2_32 userenv bcrypt advapi32)
 endif()
 
 # Windows: make sure we link against the C runtime statically if the
