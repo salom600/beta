@@ -61,7 +61,7 @@ impl Default for TrackState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Track {
     pub id: TrackId,
     pub kind: TrackKind,
