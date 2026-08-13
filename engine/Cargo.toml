@@ -1,0 +1,16 @@
+[package]
+name = "beta_engine"
+version = "0.1.0"
+edition = "2021"
+description = "Core engine for the Beta video editor (project state, timeline, media metadata)."
+license = "MIT"
+
+[lib]
+name = "beta_engine"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

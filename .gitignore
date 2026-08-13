@@ -1,0 +1,29 @@
+# Rust
+**/target/
+**/*.rs.bk
+# Note: Cargo.lock IS committed for applications (this is an app, not a lib)
+
+# CMake / build
+build/
+out/
+cmake-build-*/
+.cache/
+compile_commands.json
+
+# IDE
+.vscode/
+.idea/
+*.user
+*.user.*
+*.suo
+*.pdb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Distribution
+*.zip
+*.tar.gz
+artifact/
+release/
