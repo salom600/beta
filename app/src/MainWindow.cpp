@@ -69,9 +69,9 @@ void MainWindow::openProject()
 void MainWindow::applyTheme()
 {
     if (QStyleFactory::keys().contains("Fusion")) {
-        QApplication::setStyle(QStyleFactory::create("Fusion"));
+        qApp->setStyle(QStyleFactory::create("Fusion"));
     }
-    QPalette p = QApplication::palette();
+    QPalette p = qApp->palette();
     p.setColor(QPalette::Window,          QColor( 30,  31,  34));
     p.setColor(QPalette::WindowText,      QColor(230, 231, 236));
     p.setColor(QPalette::Base,            QColor( 30,  31,  34));
@@ -84,11 +84,11 @@ void MainWindow::applyTheme()
     p.setColor(QPalette::HighlightedText, Qt::white);
     p.setColor(QPalette::ToolTipBase,     QColor( 45,  46,  51));
     p.setColor(QPalette::ToolTipText,     QColor(240, 240, 242));
-    QApplication::setPalette(p);
+    qApp->setPalette(p);
 
     QFile qss(":/dark.qss");
     if (qss.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        QApplication::setStyleSheet(QString::fromUtf8(qss.readAll()));
+        qApp->setStyleSheet(QString::fromUtf8(qss.readAll()));
     }
 }
 

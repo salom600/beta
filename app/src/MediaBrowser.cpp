@@ -1,6 +1,7 @@
 #include "MediaBrowser.h"
 #include "MediaProber.h"
 
+#include <QDrag>
 #include <QFileInfo>
 #include <QListWidgetItem>
 #include <QMimeData>
@@ -8,6 +9,7 @@
 #include <QPixmap>
 #include <QIcon>
 #include <QPainter>
+#include <QUrl>
 #include <QByteArray>
 #include <QBuffer>
 

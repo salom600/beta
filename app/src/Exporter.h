@@ -1,13 +1,13 @@
 #pragma once
 
 #include <QObject>
+#include <QProcess>
 #include <QString>
 #include <QStringList>
 #include <QList>
 #include <QHash>
 #include <cstdint>
 
-class QProcess;
 class QTemporaryDir;
 
 namespace beta {

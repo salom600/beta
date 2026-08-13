@@ -4,6 +4,7 @@
 
 class QCheckBox;
 class QComboBox;
+class QLabel;
 class QSpinBox;
 class QDoubleSpinBox;
 class QLineEdit;
