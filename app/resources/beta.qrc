@@ -1,0 +1,24 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>dark.qss</file>
+        <file alias="icons/import.svg">icons/import.svg</file>
+        <file alias="icons/play.svg">icons/play.svg</file>
+        <file alias="icons/pause.svg">icons/pause.svg</file>
+        <file alias="icons/stop.svg">icons/stop.svg</file>
+        <file alias="icons/export.svg">icons/export.svg</file>
+        <file alias="icons/scissors.svg">icons/scissors.svg</file>
+        <file alias="icons/video-track.svg">icons/video-track.svg</file>
+        <file alias="icons/audio-track.svg">icons/audio-track.svg</file>
+        <file alias="icons/image-track.svg">icons/image-track.svg</file>
+        <file alias="icons/eye.svg">icons/eye.svg</file>
+        <file alias="icons/eye-off.svg">icons/eye-off.svg</file>
+        <file alias="icons/lock-open.svg">icons/lock-open.svg</file>
+        <file alias="icons/lock-closed.svg">icons/lock-closed.svg</file>
+        <file alias="icons/speaker-on.svg">icons/speaker-on.svg</file>
+        <file alias="icons/speaker-off.svg">icons/speaker-off.svg</file>
+        <file alias="icons/plus.svg">icons/plus.svg</file>
+        <file alias="icons/film.svg">icons/film.svg</file>
+        <file alias="icons/app-icon.svg">icons/app-icon.svg</file>
+    </qresource>
+</RCC>

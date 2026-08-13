@@ -1,6 +1,6 @@
 [package]
 name = "beta_engine"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Core engine for the Beta video editor (project state, timeline, media metadata)."
 license = "MIT"
@@ -8,6 +8,10 @@ license = "MIT"
 [lib]
 name = "beta_engine"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [profile.release]
 opt-level = 3

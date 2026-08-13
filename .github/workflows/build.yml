@@ -26,30 +26,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Qt6 + build deps (apt)
+      - name: Apt cache
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt
+          key: apt-linux-${{ runner.os }}-qt6multimedia-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: apt-linux-
+
+      - name: Install Qt6 + build deps + ffmpeg (apt)
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             qt6-base-dev qt6-multimedia-dev \
-            libqt6multimedia6 \
-            libgl1-mesa-dev libegl1-mesa-dev \
+            libqt6multimedia6 libgl1-mesa-dev libegl1-mesa-dev \
             build-essential cmake ninja-build pkg-config \
-            libfuse2
+            libfuse2 ffmpeg
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            build/engine
-          key: cargo-linux-${{ hashFiles('engine/Cargo.toml', 'engine/src/**') }}
-          restore-keys: cargo-linux-
+          workspaces: "engine -> target"
 
       - name: Configure CMake
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -57,22 +56,38 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Stage artifacts
+      - name: Stage artifacts (with ffmpeg + Qt plugins)
         run: |
           set -eux
-          mkdir -p artifact
+          mkdir -p artifact/platforms artifact/multimedia artifact/imageformats artifact/styles artifact/tls artifact/mediaservice artifact/audio
           cp build/app/beta_editor artifact/beta-editor-linux
-          # Package required Qt plugins into the artifact folder for portability
-          mkdir -p artifact/platforms artifact/multimedia artifact/imageformats
-          QT_PLUGINS=$(qt6-dir 2>/dev/null || echo /usr/lib/qt6/plugins)
-          cp -v ${QT_PLUGINS}/platforms/libqxcb.so artifact/platforms/ 2>/dev/null || true
-          cp -v ${QT_PLUGINS}/multimedia/*.so artifact/multimedia/ 2>/dev/null || true
-          cp -v ${QT_PLUGINS}/imageformats/*.so artifact/imageformats/ 2>/dev/null || true
-          # Write a tiny launcher script that points Qt at the bundled plugins
+          chmod +x artifact/beta-editor-linux
+          # Find Qt6 plugin dir
+          QT_PLUGINS=$(find /usr -name platforms -path "*qt6*" -type d 2>/dev/null | head -1 | xargs dirname)
+          if [ -n "$QT_PLUGINS" ]; then
+            cp -v $QT_PLUGINS/platforms/*.so   artifact/platforms/ 2>/dev/null || true
+            cp -v $QT_PLUGINS/multimedia/*.so  artifact/multimedia/ 2>/dev/null || true
+            cp -v $QT_PLUGINS/imageformats/*.so artifact/imageformats/ 2>/dev/null || true
+            cp -v $QT_PLUGINS/styles/*.so      artifact/styles/ 2>/dev/null || true
+            cp -v $QT_PLUGINS/tls/*.so         artifact/tls/ 2>/dev/null || true
+            cp -v $QT_PLUGINS/mediaservice/*.so artifact/mediaservice/ 2>/dev/null || true
+            cp -v $QT_PLUGINS/audio/*.so       artifact/audio/ 2>/dev/null || true
+          fi
+          # Copy Qt6 runtime libs so the bundle runs without apt-installed Qt
+          for lib in libQt6Core libQt6Gui libQt6Widgets libQt6Multimedia libQt6MultimediaWidgets libQt6Network libQt6OpenGL libQt6DBus libQt6Svg; do
+            cp -v $(ldconfig -p | grep -m1 "$lib.so.6" | awk '{print $NF}') artifact/ 2>/dev/null || true
+          done
+          # Bundle ffmpeg so export works out of the box
+          cp -v $(which ffmpeg) artifact/ffmpeg
+          chmod +x artifact/ffmpeg
+          # Launcher script: sets up env so the bundle finds Qt + ffmpeg
           cat > artifact/run.sh <<'EOF'
           #!/usr/bin/env bash
           HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          export LD_LIBRARY_PATH="${HERE}:${LD_LIBRARY_PATH}"
           export QT_PLUGIN_PATH="${HERE}"
+          export QT_QPA_PLATFORM_PLUGIN_PATH="${HERE}/platforms"
+          export BETA_FFMPEG="${HERE}/ffmpeg"
           exec "${HERE}/beta-editor-linux" "$@"
           EOF
           chmod +x artifact/run.sh
@@ -97,6 +112,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache Qt install
+        id: qt-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.workspace }}\Qt
+          key: qt-${{ env.QT_VERSION }}-${{ env.QT_ARCH }}-v2
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -110,15 +132,30 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Cache cargo
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "engine -> target"
+
+      - name: Cache ffmpeg download
+        id: ffmpeg-cache
         uses: actions/cache@v4
         with:
-          path: |
-            ~\.cargo\registry
-            ~\.cargo\git
-            build\engine
-          key: cargo-windows-${{ hashFiles('engine/Cargo.toml','engine/src/**') }}
-          restore-keys: cargo-windows-
+          path: ffmpeg.zip
+          key: ffmpeg-release-essentials-7.0-windows
+
+      - name: Download ffmpeg (Windows)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path ffmpeg.zip)) {
+            Invoke-WebRequest `
+              -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" `
+              -OutFile "ffmpeg.zip"
+          }
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg-extract -Force
+          $exe = Get-ChildItem -Path ffmpeg-extract -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          Copy-Item $exe.FullName -Destination "$env:GITHUB_WORKSPACE\ffmpeg.exe"
+          Write-Host "ffmpeg.exe at $env:GITHUB_WORKSPACE\ffmpeg.exe"
 
       - name: Configure CMake
         shell: cmd
@@ -132,18 +169,30 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           cmake --build build --config Release --parallel
 
-      - name: Zip Windows artifacts
+      - name: Zip Windows artifacts (with bundled ffmpeg)
         shell: pwsh
         run: |
           $stage = "beta-editor-windows-x86_64"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item build\app\beta_editor.exe -Destination $stage\beta-editor.exe
-          # windeployqt already copied Qt DLLs next to the .exe; bring everything across
+          # windeployqt already copied Qt DLLs next to the .exe; bring them all across
           Get-ChildItem build\app -Filter *.dll | ForEach-Object { Copy-Item $_.FullName -Destination $stage }
-          Get-ChildItem build\app -Directory | Where-Object { $_.Name -in @('platforms','multimedia','imageformats','styles','tls','mediaservice','audio') } | ForEach-Object {
-            New-Item -ItemType Directory -Force -Path (Join-Path $stage $_.Name) | Out-Null
-            Copy-Item (Join-Path $_.FullName '*') -Destination (Join-Path $stage $_.Name) -Recurse -Force
+          Get-ChildItem build\app -Directory | ForEach-Object {
+            $dst = Join-Path $stage $_.Name
+            New-Item -ItemType Directory -Force -Path $dst | Out-Null
+            Copy-Item (Join-Path $_.FullName '*') -Destination $dst -Recurse -Force
           }
+          # Bundle ffmpeg.exe next to the editor
+          Copy-Item "$env:GITHUB_WORKSPACE\ffmpeg.exe" -Destination $stage\ffmpeg.exe
+          # Launcher script that sets BETA_FFMPEG so the editor finds ffmpeg
+          @"
+          @echo off
+          setlocal
+          set "HERE=%~dp0"
+          set "BETA_FFMPEG=%HERE%ffmpeg.exe"
+          set "PATH=%HERE%;%PATH%"
+          "%HERE%beta-editor.exe" %*
+          "@ | Set-Content -Path "$stage\run.bat" -Encoding ASCII
           Compress-Archive -Path $stage\* -DestinationPath beta-editor-windows-x86_64.zip -Force
 
       - name: Upload artifact

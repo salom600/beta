@@ -1,5 +1,6 @@
 //! Timeline primitives: tracks, clips, track kinds.
 
+use serde::{Serialize, Serializer};
 use std::collections::HashMap;
 
 pub type TrackId = u64;
@@ -22,13 +23,27 @@ impl TrackKind {
             _ => None,
         }
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TrackKind::Video => "video",
+            TrackKind::Audio => "audio",
+            TrackKind::Image => "image",
+        }
+    }
+}
+
+impl Serialize for TrackKind {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
 }
 
 /// Per-track visibility / lock state, mirrored on the UI as:
 /// - Eye button (video/image tracks)
 /// - Mute button (audio tracks)
 /// - Lock button (any track)
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 #[repr(C)]
 pub struct TrackState {
     pub visible: bool,
@@ -85,9 +100,15 @@ impl Track {
         v.sort_by_key(|c| c.start_frame);
         v
     }
+
+    pub fn clips_sorted_mut(&mut self) -> Vec<&mut Clip> {
+        let mut v: Vec<&mut Clip> = self.clips.values_mut().collect();
+        v.sort_by_key(|c| c.start_frame);
+        v
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Clip {
     pub id: ClipId,
     pub media_path: String,
@@ -98,6 +119,12 @@ pub struct Clip {
     pub volume: f32,
     pub opacity: f32,
     pub scale: f32,
+    #[serde(skip)]
+    pub media_width: u32,
+    #[serde(skip)]
+    pub media_height: u32,
+    #[serde(skip)]
+    pub media_duration_frames: u64,
 }
 
 impl Default for Clip {
@@ -112,6 +139,9 @@ impl Default for Clip {
             volume: 1.0,
             opacity: 1.0,
             scale: 1.0,
+            media_width: 0,
+            media_height: 0,
+            media_duration_frames: 0,
         }
     }
 }

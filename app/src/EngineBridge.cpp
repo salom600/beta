@@ -1,9 +1,13 @@
 #include "EngineBridge.h"
 #include "engine.h"
 
+#include <QByteArray>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QList>
 #include <QString>
-#include <QByteArray>
 
 namespace beta {
 
@@ -49,19 +53,12 @@ bool EngineBridge::removeTrack(uint64_t projectId, uint64_t trackId)
 
 QList<uint64_t> EngineBridge::trackIds(uint64_t projectId) const
 {
+    // We use the JSON snapshot to get authoritative ids; the legacy
+    // track_count + track_name approach was brittle if tracks had gaps.
     QList<uint64_t> out;
-    size_t n = engine_track_count(d_->handle, projectId);
-    out.reserve(static_cast<int>(n));
-    // We iterate ids 1..n because the engine assigns them monotonically
-    // starting at 1. Any gaps (from removed tracks) are skipped.
-    for (uint64_t i = 1; i <= n + 16; ++i) {
-        char* nm = engine_track_name(d_->handle, projectId, i);
-        if (nm) {
-            out.append(i);
-            engine_string_free(nm);
-        }
-        if (static_cast<size_t>(out.size()) >= n) break;
-    }
+    ProjectSnapshot s = snapshot(projectId);
+    out.reserve(s.tracks.size());
+    for (const auto& t : s.tracks) out.append(t.id);
     return out;
 }
 
@@ -109,6 +106,91 @@ uint64_t EngineBridge::addClip(uint64_t projectId, uint64_t trackId,
 bool EngineBridge::removeClip(uint64_t projectId, uint64_t trackId, uint64_t clipId)
 {
     return engine_remove_clip(d_->handle, projectId, trackId, clipId) != 0;
+}
+
+bool EngineBridge::moveClip(uint64_t projectId, uint64_t trackId, uint64_t clipId,
+                             uint64_t newStartFrame)
+{
+    return engine_move_clip(d_->handle, projectId, trackId, clipId, newStartFrame) != 0;
+}
+
+bool EngineBridge::trimClip(uint64_t projectId, uint64_t trackId, uint64_t clipId,
+                             uint64_t newTrimIn, uint64_t newDuration)
+{
+    return engine_trim_clip(d_->handle, projectId, trackId, clipId,
+                             newTrimIn, newDuration) != 0;
+}
+
+bool EngineBridge::setClipMediaInfo(uint64_t projectId, uint64_t trackId, uint64_t clipId,
+                                     uint32_t width, uint32_t height, uint64_t durationFrames)
+{
+    return engine_set_clip_media_info(d_->handle, projectId, trackId, clipId,
+                                       width, height, durationFrames) != 0;
+}
+
+bool EngineBridge::setClipProps(uint64_t projectId, uint64_t trackId, uint64_t clipId,
+                                 float volume, float opacity, float scale)
+{
+    return engine_set_clip_props(d_->handle, projectId, trackId, clipId,
+                                  volume, opacity, scale) != 0;
+}
+
+EngineBridge::ProjectSnapshot EngineBridge::snapshot(uint64_t projectId) const
+{
+    ProjectSnapshot snap;
+    char* json = engine_serialize_project(d_->handle, projectId);
+    if (!json) return snap;
+
+    QJsonParseError err;
+    QJsonDocument doc = QJsonDocument::fromJson(
+        QByteArray(json), &err);
+    engine_string_free(json);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) return snap;
+
+    QJsonObject root = doc.object();
+    snap.name   = root.value("name").toString();
+    snap.width  = static_cast<uint32_t>(root.value("width").toInt(1920));
+    snap.height = static_cast<uint32_t>(root.value("height").toInt(1080));
+    snap.fps    = root.value("fps").toDouble(30.0);
+
+    const QJsonArray tracks = root.value("tracks").toArray();
+    for (const QJsonValue& tv : tracks) {
+        QJsonObject to = tv.toObject();
+        TrackInfo t;
+        t.id   = static_cast<uint64_t>(to.value("id").toVariant().toULongLong());
+        t.name = to.value("name").toString();
+        QString kindStr = to.value("kind").toString();
+        if      (kindStr == "video") t.kind = 0;
+        else if (kindStr == "audio") t.kind = 1;
+        else if (kindStr == "image") t.kind = 2;
+        else                          t.kind = 0;
+
+        QJsonObject so = to.value("state").toObject();
+        t.state.visible = so.value("visible").toBool(true);
+        t.state.locked  = so.value("locked").toBool(false);
+        t.state.muted   = so.value("muted").toBool(false);
+
+        const QJsonArray clips = to.value("clips").toArray();
+        for (const QJsonValue& cv : clips) {
+            QJsonObject co = cv.toObject();
+            ClipInfo c;
+            c.id                = static_cast<uint64_t>(co.value("id").toVariant().toULongLong());
+            c.mediaPath         = co.value("media_path").toString();
+            c.mediaName         = co.value("media_name").toString();
+            c.startFrame        = static_cast<uint64_t>(co.value("start_frame").toVariant().toULongLong());
+            c.durationFrames    = static_cast<uint64_t>(co.value("duration_frames").toVariant().toULongLong());
+            c.trimInFrames      = static_cast<uint64_t>(co.value("trim_in_frames").toVariant().toULongLong());
+            c.volume            = static_cast<float>(co.value("volume").toDouble(1.0));
+            c.opacity           = static_cast<float>(co.value("opacity").toDouble(1.0));
+            c.scale             = static_cast<float>(co.value("scale").toDouble(1.0));
+            c.mediaWidth        = 0;
+            c.mediaHeight       = 0;
+            c.mediaDurationFrames = 0;
+            t.clips.append(c);
+        }
+        snap.tracks.append(t);
+    }
+    return snap;
 }
 
 QString EngineBridge::engineVersion() const

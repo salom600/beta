@@ -16,24 +16,35 @@ set(APP_SOURCES
     src/main.cpp
     src/MainWindow.cpp
     src/MediaBrowser.cpp
+    src/MediaProber.cpp
     src/PreviewWidget.cpp
     src/TimelineWidget.cpp
     src/PropertiesPanel.cpp
     src/EngineBridge.cpp
+    src/ExportDialog.cpp
+    src/Exporter.cpp
 )
 
 set(APP_HEADERS
     src/MainWindow.h
     src/MediaBrowser.h
+    src/MediaProber.h
     src/PreviewWidget.h
     src/TimelineWidget.h
     src/PropertiesPanel.h
     src/EngineBridge.h
+    src/ExportDialog.h
+    src/Exporter.h
+)
+
+set(APP_RESOURCES
+    resources/beta.qrc
 )
 
 add_executable(beta_editor WIN32
     ${APP_SOURCES}
     ${APP_HEADERS}
+    ${APP_RESOURCES}
 )
 
 target_include_directories(beta_editor PRIVATE
@@ -55,8 +66,7 @@ if(WIN32)
     target_link_libraries(beta_editor PRIVATE ntdll ws2_32 userenv bcrypt advapi32)
 endif()
 
-# Windows: make sure we link against the C runtime statically if the
-# Rust staticlib was built that way; on Linux/macOS nothing extra needed.
+# Windows: GUI subsystem + windeployqt to bundle DLLs
 if(WIN32)
     set_target_properties(beta_editor PROPERTIES
         WIN32_EXECUTABLE TRUE

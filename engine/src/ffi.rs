@@ -7,7 +7,7 @@ use crate::project::ProjectId;
 use crate::timeline::{Clip, ClipId, Track, TrackId, TrackKind, TrackState};
 use crate::Engine;
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int};
+use std::os::raw::{c_char, c_int, c_float};
 use std::ptr;
 
 /// Opaque engine handle. The C side treats this as `void*`.
@@ -124,8 +124,8 @@ pub extern "C" fn engine_track_state(
         return TrackState::default();
     }
     let eng = unsafe { &*engine };
-    let mut projects = eng.projects.lock().unwrap();
-    if let Some(p) = projects.get_mut(&project_id) {
+    let projects = eng.projects.lock().unwrap();
+    if let Some(p) = projects.get(&project_id) {
         if let Some(t) = p.tracks.get(&track_id) {
             return t.state;
         }
@@ -201,6 +201,9 @@ pub extern "C" fn engine_add_clip(
         volume: 1.0,
         opacity: 1.0,
         scale: 1.0,
+        media_width: 0,
+        media_height: 0,
+        media_duration_frames: 0,
     };
     track.add_clip(clip)
 }
@@ -220,6 +223,112 @@ pub extern "C" fn engine_remove_clip(
     if let Some(p) = projects.get_mut(&project_id) {
         if let Some(t) = p.tracks.get_mut(&track_id) {
             return t.remove_clip(clip_id);
+        }
+    }
+    false
+}
+
+#[no_mangle]
+pub extern "C" fn engine_move_clip(
+    engine: EngineHandle,
+    project_id: u64,
+    track_id: TrackId,
+    clip_id: ClipId,
+    new_start_frame: u64,
+) -> bool {
+    if engine.is_null() {
+        return false;
+    }
+    let eng = unsafe { &*engine };
+    let mut projects = eng.projects.lock().unwrap();
+    if let Some(p) = projects.get_mut(&project_id) {
+        if let Some(t) = p.tracks.get_mut(&track_id) {
+            if let Some(c) = t.clips.get_mut(&clip_id) {
+                c.start_frame = new_start_frame;
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[no_mangle]
+pub extern "C" fn engine_trim_clip(
+    engine: EngineHandle,
+    project_id: u64,
+    track_id: TrackId,
+    clip_id: ClipId,
+    new_trim_in: u64,
+    new_duration: u64,
+) -> bool {
+    if engine.is_null() {
+        return false;
+    }
+    let eng = unsafe { &*engine };
+    let mut projects = eng.projects.lock().unwrap();
+    if let Some(p) = projects.get_mut(&project_id) {
+        if let Some(t) = p.tracks.get_mut(&track_id) {
+            if let Some(c) = t.clips.get_mut(&clip_id) {
+                c.trim_in_frames = new_trim_in;
+                c.duration_frames = new_duration.max(1);
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[no_mangle]
+pub extern "C" fn engine_set_clip_media_info(
+    engine: EngineHandle,
+    project_id: u64,
+    track_id: TrackId,
+    clip_id: ClipId,
+    width: u32,
+    height: u32,
+    duration_frames: u64,
+) -> bool {
+    if engine.is_null() {
+        return false;
+    }
+    let eng = unsafe { &*engine };
+    let mut projects = eng.projects.lock().unwrap();
+    if let Some(p) = projects.get_mut(&project_id) {
+        if let Some(t) = p.tracks.get_mut(&track_id) {
+            if let Some(c) = t.clips.get_mut(&clip_id) {
+                c.media_width = width;
+                c.media_height = height;
+                c.media_duration_frames = duration_frames;
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[no_mangle]
+pub extern "C" fn engine_set_clip_props(
+    engine: EngineHandle,
+    project_id: u64,
+    track_id: TrackId,
+    clip_id: ClipId,
+    volume: c_float,
+    opacity: c_float,
+    scale: c_float,
+) -> bool {
+    if engine.is_null() {
+        return false;
+    }
+    let eng = unsafe { &*engine };
+    let mut projects = eng.projects.lock().unwrap();
+    if let Some(p) = projects.get_mut(&project_id) {
+        if let Some(t) = p.tracks.get_mut(&track_id) {
+            if let Some(c) = t.clips.get_mut(&clip_id) {
+                c.volume = volume;
+                c.opacity = opacity;
+                c.scale = scale;
+                return true;
+            }
         }
     }
     false
@@ -317,8 +426,31 @@ pub extern "C" fn engine_version() -> *mut c_char {
 /// must NOT free the returned pointer — it points at static storage.
 #[no_mangle]
 pub extern "C" fn engine_version_static() -> *const c_char {
-    static VERSION: &[u8] = b"0.1.0\0";
+    static VERSION: &[u8] = b"0.2.0\0";
     VERSION.as_ptr() as *const c_char
+}
+
+/// Serialize the entire project (tracks, clips, settings) to a
+/// heap-allocated JSON string. Caller must free with
+/// [`engine_string_free`]. Returns null on failure.
+#[no_mangle]
+pub extern "C" fn engine_serialize_project(
+    engine: EngineHandle,
+    project_id: u64,
+) -> *mut c_char {
+    if engine.is_null() {
+        return ptr::null_mut();
+    }
+    let eng = unsafe { &*engine };
+    let projects = eng.projects.lock().unwrap();
+    let project = match projects.get(&project_id) {
+        Some(p) => p,
+        None => return ptr::null_mut(),
+    };
+    match serde_json::to_string(project) {
+        Ok(s) => CString::new(s).unwrap_or_default().into_raw(),
+        Err(_) => ptr::null_mut(),
+    }
 }
 
 #[allow(dead_code)]

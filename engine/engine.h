@@ -59,8 +59,17 @@ ClipId       engine_add_clip(EngineHandle engine, ProjectId project_id, TrackId 
 int          engine_remove_clip(EngineHandle engine, ProjectId project_id, TrackId track_id, ClipId clip_id);
 size_t       engine_clip_count(EngineHandle engine, ProjectId project_id, TrackId track_id);
 
+/* clip editing */
+int          engine_move_clip(EngineHandle engine, ProjectId project_id, TrackId track_id, ClipId clip_id, uint64_t new_start_frame);
+int          engine_trim_clip(EngineHandle engine, ProjectId project_id, TrackId track_id, ClipId clip_id, uint64_t new_trim_in, uint64_t new_duration);
+int          engine_set_clip_media_info(EngineHandle engine, ProjectId project_id, TrackId track_id, ClipId clip_id, uint32_t width, uint32_t height, uint64_t duration_frames);
+int          engine_set_clip_props(EngineHandle engine, ProjectId project_id, TrackId track_id, ClipId clip_id, float volume, float opacity, float scale);
+
 /* media probe */
 int          engine_probe_media(const char* path);
+
+/* serialization (returns JSON; caller must engine_string_free) */
+char*        engine_serialize_project(EngineHandle engine, ProjectId project_id);
 
 /* helpers */
 char*        engine_version(void);

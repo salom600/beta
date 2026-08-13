@@ -1,21 +1,26 @@
 #pragma once
 
 #include <QMainWindow>
-#include <QMediaPlayer>
 #include <memory>
 
 class QSplitter;
 class QToolBar;
 class QAction;
 class QLabel;
+class QProgressBar;
+class QDialog;
+class QPlainTextEdit;
 
 namespace beta {
 
 class EngineBridge;
 class MediaBrowser;
+class MediaProber;
 class PreviewWidget;
 class TimelineWidget;
 class PropertiesPanel;
+class Exporter;
+class ExportDialog;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -33,16 +38,23 @@ private slots:
     void onAddVideoTrack();
     void onAddAudioTrack();
     void onAddImageTrack();
+    void onExport();
     void onAbout();
+    void onExportProgress(int percent, const QString& stage);
+    void onExportFinished(bool success, const QString& msg);
 
 private:
     void setupActions();
     void setupToolbar();
     void setupCentral();
     void setupStatusbar();
+    void setupMenubar();
+    void applyTheme();
     void openProject();
 
     std::unique_ptr<EngineBridge> engine_;
+    std::unique_ptr<MediaProber>  prober_;
+    std::unique_ptr<Exporter>     exporter_;
     uint64_t projectId_ = 0;
 
     QSplitter*    mainSplitter_  = nullptr;
@@ -53,6 +65,7 @@ private:
     TimelineWidget* timeline_    = nullptr;
     PropertiesPanel* properties_ = nullptr;
     QLabel*       statusLabel_   = nullptr;
+    QProgressBar* exportProgress_ = nullptr;
 
     QAction* actImport_        = nullptr;
     QAction* actPlayPause_     = nullptr;
@@ -60,6 +73,7 @@ private:
     QAction* actAddVideoTrack_ = nullptr;
     QAction* actAddAudioTrack_ = nullptr;
     QAction* actAddImageTrack_ = nullptr;
+    QAction* actExport_        = nullptr;
     QAction* actAbout_         = nullptr;
 };
 
