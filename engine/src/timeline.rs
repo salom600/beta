@@ -28,7 +28,7 @@ impl TrackKind {
 /// - Eye button (video/image tracks)
 /// - Mute button (audio tracks)
 /// - Lock button (any track)
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct TrackState {
     pub visible: bool,

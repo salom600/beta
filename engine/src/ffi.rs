@@ -2,10 +2,10 @@
 //! C-compatible types so the C++ side can call into the engine through
 //! a single `engine.h` header.
 
-use crate::engine::Engine;
 use crate::media::{MediaAsset, MediaKind};
 use crate::project::ProjectId;
 use crate::timeline::{Clip, ClipId, Track, TrackId, TrackKind, TrackState};
+use crate::Engine;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
 use std::ptr;
