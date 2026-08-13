@@ -1,9 +1,8 @@
 #include "MediaBrowser.h"
 
 #include <QFileInfo>
-#include <QFileInfoList>
-#include <QHeaderView>
 #include <QListWidgetItem>
+#include <QStyle>
 
 namespace beta {
 
@@ -33,7 +32,9 @@ void MediaBrowser::addMedia(const QString& path)
     QIcon icon;
     if (suffix == "mp4" || suffix == "mov" || suffix == "mkv" ||
         suffix == "avi" || suffix == "webm" || suffix == "m4v") {
-        icon = style()->standardIcon(QStyle::SP_MediaVideo);
+        // Qt6 dropped SP_MediaVideo — use SP_FileDialogContentsView as a
+        // generic "media" icon.
+        icon = style()->standardIcon(QStyle::SP_FileDialogContentsView);
     } else if (suffix == "mp3" || suffix == "wav" || suffix == "aac" ||
                suffix == "flac" || suffix == "ogg" || suffix == "m4a") {
         icon = style()->standardIcon(QStyle::SP_MediaVolume);
