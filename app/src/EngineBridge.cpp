@@ -13,9 +13,9 @@ namespace beta {
 
 namespace {
 
-ClipAdjust parseAdjust(const QJsonObject& o)
+EngineBridge::ClipAdjust parseAdjust(const QJsonObject& o)
 {
-    ClipAdjust a;
+    EngineBridge::ClipAdjust a;
     a.brightness = static_cast<float>(o.value("brightness").toDouble(0.0));
     a.contrast   = static_cast<float>(o.value("contrast").toDouble(0.0));
     a.saturation = static_cast<float>(o.value("saturation").toDouble(0.0));
@@ -32,7 +32,7 @@ ClipAdjust parseAdjust(const QJsonObject& o)
     return a;
 }
 
-::ClipAdjust toC(const ClipAdjust& a)
+::ClipAdjust toC(const EngineBridge::ClipAdjust& a)
 {
     ::ClipAdjust c;
     c.brightness = a.brightness;

@@ -4,10 +4,11 @@
 #include <QMap>
 #include <QWidget>
 #include <cstdint>
+#include <utility>
+#include "EngineBridge.h"
 
 namespace beta {
 
-class EngineBridge;
 class MediaProber;
 
 /// Bottom panel: timeline with multiple tracks, a playback playhead,

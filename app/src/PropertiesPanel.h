@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <cstdint>
+#include "EngineBridge.h"
 
 class QFormLayout;
 class QLabel;
@@ -15,7 +16,6 @@ class QCheckBox;
 
 namespace beta {
 
-class EngineBridge;
 class TimelineWidget;
 
 /// Right-side panel. Shows properties of the currently selected clip
