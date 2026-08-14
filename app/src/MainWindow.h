@@ -30,6 +30,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* e) override;
+    void keyPressEvent(QKeyEvent* e) override;
 
 private slots:
     void onImportMedia();
@@ -38,10 +39,15 @@ private slots:
     void onAddVideoTrack();
     void onAddAudioTrack();
     void onAddImageTrack();
+    void onSplit();
+    void onCut();
+    void onMerge();
+    void onDelete();
     void onExport();
     void onAbout();
     void onExportProgress(int percent, const QString& stage);
     void onExportFinished(bool success, const QString& msg);
+    void onTimelineChanged();
 
 private:
     void setupActions();
@@ -60,6 +66,7 @@ private:
     QSplitter*    mainSplitter_  = nullptr;
     QSplitter*    centerSplitter_ = nullptr;
     QToolBar*     toolbar_       = nullptr;
+    QToolBar*     editToolbar_   = nullptr;
     MediaBrowser* mediaBrowser_  = nullptr;
     PreviewWidget* preview_      = nullptr;
     TimelineWidget* timeline_    = nullptr;
@@ -73,6 +80,10 @@ private:
     QAction* actAddVideoTrack_ = nullptr;
     QAction* actAddAudioTrack_ = nullptr;
     QAction* actAddImageTrack_ = nullptr;
+    QAction* actSplit_         = nullptr;
+    QAction* actCut_           = nullptr;
+    QAction* actMerge_         = nullptr;
+    QAction* actDelete_        = nullptr;
     QAction* actExport_        = nullptr;
     QAction* actAbout_         = nullptr;
 };

@@ -14,11 +14,13 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMainWindow>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QProgressBar>
+#include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStyle>
@@ -27,7 +29,6 @@
 #include <QToolBar>
 #include <QFile>
 #include <QPixmap>
-#include <QSettings>
 
 namespace beta {
 
@@ -56,7 +57,47 @@ MainWindow::~MainWindow() = default;
 
 void MainWindow::closeEvent(QCloseEvent* e)
 {
+    QSettings s;
+    s.setValue("mainSplitter",   mainSplitter_->saveState());
+    s.setValue("centerSplitter", centerSplitter_->saveState());
     e->accept();
+}
+
+void MainWindow::keyPressEvent(QKeyEvent* e)
+{
+    // Only intercept when not editing text in a QLineEdit / spinbox.
+    QWidget* focus = QApplication::focusWidget();
+    bool editingText = focus && (
+        qobject_cast<QLineEdit*>(focus) ||
+        qobject_cast<QSpinBox*>(focus) ||
+        qobject_cast<QDoubleSpinBox*>(focus) ||
+        qobject_cast<QPlainTextEdit*>(focus));
+    if (editingText) {
+        QMainWindow::keyPressEvent(e);
+        return;
+    }
+
+    switch (e->key()) {
+    case Qt::Key_Space:      onPlayPause(); return;
+    case Qt::Key_S:          if (e->modifiers() == Qt::NoModifier) { onSplit(); return; } break;
+    case Qt::Key_M:          if (e->modifiers() == Qt::NoModifier) { onMerge(); return; } break;
+    case Qt::Key_Delete:
+    case Qt::Key_Backspace: onDelete(); return;
+    case Qt::Key_Left:
+        if (e->modifiers() & Qt::ControlModifier) {
+            timeline_->setPlayheadFrame(timeline_->playheadFrame() > 0 ? timeline_->playheadFrame() - 1 : 0);
+            return;
+        }
+        break;
+    case Qt::Key_Right:
+        if (e->modifiers() & Qt::ControlModifier) {
+            timeline_->setPlayheadFrame(timeline_->playheadFrame() + 1);
+            return;
+        }
+        break;
+    default: break;
+    }
+    QMainWindow::keyPressEvent(e);
 }
 
 void MainWindow::openProject()
@@ -108,17 +149,37 @@ void MainWindow::setupActions()
     actStop_->setToolTip(tr("Stop"));
     connect(actStop_, &QAction::triggered, this, &MainWindow::onStop);
 
-    actAddVideoTrack_ = new QAction(QIcon(":/icons/video-track.svg"), tr("Add Video Track"), this);
+    actAddVideoTrack_ = new QAction(QIcon(":/icons/video-track.svg"), tr("Video Track"), this);
     actAddVideoTrack_->setToolTip(tr("Add a video track"));
     connect(actAddVideoTrack_, &QAction::triggered, this, &MainWindow::onAddVideoTrack);
 
-    actAddAudioTrack_ = new QAction(QIcon(":/icons/audio-track.svg"), tr("Add Audio Track"), this);
+    actAddAudioTrack_ = new QAction(QIcon(":/icons/audio-track.svg"), tr("Audio Track"), this);
     actAddAudioTrack_->setToolTip(tr("Add an audio track"));
     connect(actAddAudioTrack_, &QAction::triggered, this, &MainWindow::onAddAudioTrack);
 
-    actAddImageTrack_ = new QAction(QIcon(":/icons/image-track.svg"), tr("Add Image Track"), this);
+    actAddImageTrack_ = new QAction(QIcon(":/icons/image-track.svg"), tr("Image Track"), this);
     actAddImageTrack_->setToolTip(tr("Add an image track"));
     connect(actAddImageTrack_, &QAction::triggered, this, &MainWindow::onAddImageTrack);
+
+    actSplit_ = new QAction(QIcon(":/icons/scissors.svg"), tr("Split"), this);
+    actSplit_->setShortcut(QKeySequence("S"));
+    actSplit_->setToolTip(tr("Split the clip at the playhead (S)"));
+    connect(actSplit_, &QAction::triggered, this, &MainWindow::onSplit);
+
+    actCut_ = new QAction(QIcon(":/icons/scissors.svg"), tr("Cut"), this);
+    actCut_->setShortcut(QKeySequence("Ctrl+X"));
+    actCut_->setToolTip(tr("Cut: split at playhead and remove the right half (Ctrl+X)"));
+    connect(actCut_, &QAction::triggered, this, &MainWindow::onCut);
+
+    actMerge_ = new QAction(tr("Merge"), this);
+    actMerge_->setShortcut(QKeySequence("M"));
+    actMerge_->setToolTip(tr("Merge the selected clip with the next (M)"));
+    connect(actMerge_, &QAction::triggered, this, &MainWindow::onMerge);
+
+    actDelete_ = new QAction(tr("Delete"), this);
+    actDelete_->setShortcut(QKeySequence("Del"));
+    actDelete_->setToolTip(tr("Delete the selected clip (Del)"));
+    connect(actDelete_, &QAction::triggered, this, &MainWindow::onDelete);
 
     actExport_ = new QAction(QIcon(":/icons/export.svg"), tr("&Export..."), this);
     actExport_->setShortcut(QKeySequence("Ctrl+E"));
@@ -137,6 +198,12 @@ void MainWindow::setupMenubar()
     fileMenu->addAction(actExport_);
     fileMenu->addSeparator();
     fileMenu->addAction(tr("Quit"), this, &QWidget::close, QKeySequence("Ctrl+Q"));
+
+    auto* editMenu = menuBar()->addMenu(tr("&Edit"));
+    editMenu->addAction(actSplit_);
+    editMenu->addAction(actCut_);
+    editMenu->addAction(actMerge_);
+    editMenu->addAction(actDelete_);
 
     auto* trackMenu = menuBar()->addMenu(tr("&Track"));
     trackMenu->addAction(actAddVideoTrack_);
@@ -165,6 +232,17 @@ void MainWindow::setupToolbar()
     toolbar_->addAction(actAddImageTrack_);
     toolbar_->addSeparator();
     toolbar_->addAction(actExport_);
+
+    // Secondary edit toolbar
+    editToolbar_ = addToolBar(tr("Edit"));
+    editToolbar_->setObjectName("EditToolbar");
+    editToolbar_->setMovable(false);
+    editToolbar_->setIconSize(QSize(20, 20));
+    editToolbar_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    editToolbar_->addAction(actSplit_);
+    editToolbar_->addAction(actCut_);
+    editToolbar_->addAction(actMerge_);
+    editToolbar_->addAction(actDelete_);
 }
 
 void MainWindow::setupCentral()
@@ -183,6 +261,7 @@ void MainWindow::setupCentral()
     properties_ = new PropertiesPanel(mainSplitter_);
     properties_->setEngine(engine_.get());
     properties_->setProjectId(projectId_);
+    properties_->setTimeline(timeline_);
 
     centerSplitter_->addWidget(preview_);
     centerSplitter_->addWidget(timeline_);
@@ -196,12 +275,11 @@ void MainWindow::setupCentral()
     mainSplitter_->setStretchFactor(1, 5);
     mainSplitter_->setStretchFactor(2, 1);
 
-    // Restore splitter sizes
     QSettings s;
     if (s.contains("mainSplitter")) {
         mainSplitter_->restoreState(s.value("mainSplitter").toByteArray());
     } else {
-        mainSplitter_->setSizes({ 260, 1100, 280 });
+        mainSplitter_->setSizes({ 280, 1080, 320 });
     }
     if (s.contains("centerSplitter")) {
         centerSplitter_->restoreState(s.value("centerSplitter").toByteArray());
@@ -219,6 +297,8 @@ void MainWindow::setupCentral()
             preview_, &PreviewWidget::loadMedia);
     connect(timeline_, &TimelineWidget::clipSelected,
             properties_, &PropertiesPanel::showClipInfo);
+    connect(timeline_, &TimelineWidget::timelineChanged,
+            this, &MainWindow::onTimelineChanged);
 
     connect(exporter_.get(), &Exporter::progress,
             this, &MainWindow::onExportProgress);
@@ -254,15 +334,8 @@ void MainWindow::onImportMedia()
     }
 }
 
-void MainWindow::onPlayPause()
-{
-    preview_->togglePlayPause();
-}
-
-void MainWindow::onStop()
-{
-    preview_->stop();
-}
+void MainWindow::onPlayPause() { preview_->togglePlayPause(); }
+void MainWindow::onStop()      { preview_->stop(); }
 
 void MainWindow::onAddVideoTrack()
 {
@@ -283,6 +356,51 @@ void MainWindow::onAddImageTrack()
     int n = timeline_->trackCount();
     engine_->addTrack(projectId_, EngineBridge::Image, tr("Image %1").arg(n + 1));
     timeline_->refreshTracks();
+}
+
+void MainWindow::onSplit()
+{
+    if (timeline_->splitAtPlayhead()) {
+        statusBar()->showMessage(tr("Clip split at playhead."), 2000);
+    }
+}
+
+void MainWindow::onCut()
+{
+    // Cut = split at playhead, then delete the right-hand clip.
+    if (!timeline_->splitAtPlayhead()) return;
+    // After split, the playhead is at the boundary; the clip to its
+    // right is the new one. Move playhead one frame forward and delete.
+    timeline_->setPlayheadFrame(timeline_->playheadFrame() + 1);
+    timeline_->deleteSelectedClip();
+    statusBar()->showMessage(tr("Cut at playhead."), 2000);
+}
+
+void MainWindow::onMerge()
+{
+    if (timeline_->mergeSelectedWithNext()) {
+        statusBar()->showMessage(tr("Clips merged."), 2000);
+    }
+}
+
+void MainWindow::onDelete()
+{
+    if (timeline_->deleteSelectedClip()) {
+        statusBar()->showMessage(tr("Clip deleted."), 2000);
+        properties_->clearSelection();
+    }
+}
+
+void MainWindow::onTimelineChanged()
+{
+    // Refresh status bar with project stats
+    auto snap = engine_->snapshot(projectId_);
+    int totalClips = 0;
+    for (const auto& t : snap.tracks) totalClips += t.clips.size();
+    statusLabel_->setText(tr("Engine v%1  •  %2 tracks  •  %3 clips")
+                              .arg(engine_->engineVersion())
+                              .arg(snap.tracks.size())
+                              .arg(totalClips));
 }
 
 void MainWindow::onExport()
@@ -314,7 +432,6 @@ void MainWindow::onExport()
         return;
     }
 
-    // Build clip list for exporter
     QList<QList<Exporter::ClipItem>> clipsByTrack;
     for (const auto& t : snap.tracks) {
         QList<Exporter::ClipItem> track;
@@ -332,9 +449,9 @@ void MainWindow::onExport()
             item.fps             = snap.fps > 0 ? snap.fps : 30.0;
             item.width           = c.mediaWidth;
             item.height          = c.mediaHeight;
-            item.volume          = c.volume;
-            item.opacity         = c.opacity;
-            item.scale           = c.scale;
+            item.volume          = c.adjust.volume;
+            item.opacity         = c.adjust.opacity;
+            item.scale           = c.adjust.scale;
             item.muted           = t.state.muted;
             item.visible         = t.state.visible;
             track.append(item);
@@ -378,9 +495,10 @@ void MainWindow::onAbout()
            "<p><b>Engine:</b> v%1</p>"
            "<p><b>Features:</b><br>"
            "• Drag &amp; drop media onto the timeline<br>"
-           "• Move / trim clips with the mouse<br>"
-           "• Real media probing (duration, dimensions)<br>"
-           "• FFmpeg-based export to MP4 / MKV / WebM<br>"
+           "• Real media probing + thumbnails<br>"
+           "• Clip drag / trim / split / merge / delete<br>"
+           "• Color &amp; transform adjustments per clip<br>"
+           "• FFmpeg-based export<br>"
            "• Modern dark UI with custom icons</p>"
            "<p>Repository: github.com/salom600/beta</p>")
             .arg(engine_->engineVersion()));

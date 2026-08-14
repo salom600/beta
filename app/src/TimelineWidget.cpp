@@ -7,8 +7,10 @@
 #include <QColor>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFileInfo>
 #include <QFontMetrics>
 #include <QLinearGradient>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPen>
@@ -16,20 +18,17 @@
 #include <QRect>
 #include <QStyleOption>
 #include <QTimer>
-#include <QMimeData>
 #include <QUrl>
-#include <QFileInfo>
 #include <QWheelEvent>
-#include <QScrollBar>
-#include <QScrollArea>
+#include <algorithm>
 #include <cmath>
 
 namespace beta {
 
 namespace {
-const QColor CLR_BG         ( 30,  31,  34);   // #1e1f22
-const QColor CLR_ALT_BG     ( 37,  38,  42);   // #25262a
-const QColor CLR_HEADER_BG  ( 45,  46,  51);   // #2d2e33
+const QColor CLR_BG         ( 30,  31,  34);
+const QColor CLR_ALT_BG     ( 37,  38,  42);
+const QColor CLR_HEADER_BG  ( 45,  46,  51);
 const QColor CLR_HEADER_VID ( 35,  60, 110);
 const QColor CLR_HEADER_AUD ( 70,  50, 110);
 const QColor CLR_HEADER_IMG (110,  75,  40);
@@ -44,7 +43,6 @@ const QColor CLR_CLIP_IMG   (224, 160,  64);
 const QColor CLR_SELECTED   (255, 200,  90);
 const QColor CLR_BTN_ON     ( 14,  99, 212);
 const QColor CLR_BTN_OFF    ( 60,  61,  68);
-const QColor CLR_BTN_HOVER  ( 90,  91,  98);
 }
 
 TimelineWidget::TimelineWidget(QWidget* parent, EngineBridge* engine, uint64_t projectId)
@@ -92,28 +90,24 @@ void TimelineWidget::refreshTracks()
             clip.startFrame        = c.startFrame;
             clip.durationFrames    = c.durationFrames;
             clip.trimInFrames      = c.trimInFrames;
-            clip.volume            = c.volume;
-            clip.opacity           = c.opacity;
-            clip.scale             = c.scale;
+            clip.adjust            = c.adjust;
             clip.mediaWidth        = c.mediaWidth;
             clip.mediaHeight       = c.mediaHeight;
             clip.mediaDurationFrames = c.mediaDurationFrames;
             row.clips.append(clip);
         }
+        std::sort(row.clips.begin(), row.clips.end(),
+                  [](const TrackRow::Clip& a, const TrackRow::Clip& b) {
+                      return a.startFrame < b.startFrame;
+                  });
         tracks_.append(row);
     }
     update();
+    emit timelineChanged();
 }
 
-QSize TimelineWidget::sizeHint() const
-{
-    return QSize(1000, 380);
-}
-
-QSize TimelineWidget::minimumSizeHint() const
-{
-    return QSize(700, 280);
-}
+QSize TimelineWidget::sizeHint() const { return QSize(1000, 380); }
+QSize TimelineWidget::minimumSizeHint() const { return QSize(700, 280); }
 
 int TimelineWidget::xForFrame(uint64_t frame) const
 {
@@ -207,6 +201,7 @@ void TimelineWidget::commitClipMove(int row, int clipIdx)
     auto& clip = tracks_[row].clips[clipIdx];
     clip.startFrame = dragNewStart_;
     engine_->moveClip(projectId_, tracks_[row].id, clip.id, dragNewStart_);
+    emit timelineChanged();
     update();
 }
 
@@ -220,7 +215,70 @@ void TimelineWidget::commitClipTrim(int row, int clipIdx)
     engine_->trimClip(projectId_, tracks_[row].id, clip.id,
                        dragNewTrimIn_, dragNewDuration_);
     engine_->moveClip(projectId_, tracks_[row].id, clip.id, dragNewStart_);
+    emit timelineChanged();
     update();
+}
+
+std::pair<int, int> TimelineWidget::clipUnderPlayhead() const
+{
+    for (int r = 0; r < tracks_.size(); ++r) {
+        for (int i = 0; i < tracks_[r].clips.size(); ++i) {
+            const auto& c = tracks_[r].clips[i];
+            if (playheadFrame_ >= c.startFrame &&
+                playheadFrame_ <  c.startFrame + c.durationFrames) {
+                return {r, i};
+            }
+        }
+    }
+    return {-1, -1};
+}
+
+bool TimelineWidget::splitAtPlayhead()
+{
+    auto [r, i] = clipUnderPlayhead();
+    if (r < 0 || i < 0) return false;
+    if (tracks_[r].locked) return false;
+    const auto& c = tracks_[r].clips[i];
+    uint64_t newId = engine_->splitClip(projectId_, tracks_[r].id, c.id, playheadFrame_);
+    if (newId == 0) return false;
+    refreshTracks();
+    return true;
+}
+
+bool TimelineWidget::deleteSelectedClip()
+{
+    if (selectedRow_ < 0 || selectedClipIdx_ < 0) {
+        // Fall back to clip under playhead
+        auto [r, i] = clipUnderPlayhead();
+        if (r < 0 || i < 0) return false;
+        selectedRow_ = r;
+        selectedClipIdx_ = i;
+    }
+    if (selectedRow_ >= tracks_.size()) return false;
+    if (tracks_[selectedRow_].locked) return false;
+    const auto& c = tracks_[selectedRow_].clips[selectedClipIdx_];
+    bool ok = engine_->removeClip(projectId_, tracks_[selectedRow_].id, c.id);
+    if (ok) {
+        selectedRow_ = -1;
+        selectedClipIdx_ = -1;
+        refreshTracks();
+    }
+    return ok;
+}
+
+bool TimelineWidget::mergeSelectedWithNext()
+{
+    if (selectedRow_ < 0 || selectedClipIdx_ < 0) return false;
+    if (selectedRow_ >= tracks_.size()) return false;
+    if (tracks_[selectedRow_].clips.size() < 2) return false;
+    if (tracks_[selectedRow_].locked) return false;
+
+    const auto& left = tracks_[selectedRow_].clips[selectedClipIdx_];
+    if (selectedClipIdx_ + 1 >= tracks_[selectedRow_].clips.size()) return false;
+    const auto& right = tracks_[selectedRow_].clips[selectedClipIdx_ + 1];
+    bool ok = engine_->mergeClips(projectId_, tracks_[selectedRow_].id, left.id, right.id);
+    if (ok) refreshTracks();
+    return ok;
 }
 
 TimelineWidget::DragMode
@@ -233,22 +291,15 @@ TimelineWidget::hitTest(const QPoint& pos, int* outRow, int* outClipIdx) const
     if (pos.x() < headerWidth_) return DragMode::None;
     *outRow = r;
     const TrackRow& row = tracks_[r];
-    int fx = frameAt(pos.x());
     for (int i = 0; i < row.clips.size(); ++i) {
         const auto& c = row.clips[i];
         QRect cr = clipRect(r, c);
         if (cr.contains(pos)) {
             *outClipIdx = i;
-            // Trim handles
-            if (pos.x() - cr.x() <= trimHandleWidth_) {
-                return DragMode::TrimClipLeft;
-            }
-            if (cr.x() + cr.width() - pos.x() <= trimHandleWidth_) {
-                return DragMode::TrimClipRight;
-            }
+            if (pos.x() - cr.x() <= trimHandleWidth_) return DragMode::TrimClipLeft;
+            if (cr.x() + cr.width() - pos.x() <= trimHandleWidth_) return DragMode::TrimClipRight;
             return DragMode::MoveClip;
         }
-        (void)fx;
     }
     return DragMode::None;
 }
@@ -260,29 +311,24 @@ void TimelineWidget::onPlayheadTimer()
     emit playheadMoved(playheadFrame_);
 }
 
-void TimelineWidget::setupUi() {}
-
 void TimelineWidget::paintEvent(QPaintEvent*)
 {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
-
     p.fillRect(rect(), CLR_BG);
 
     QFont labelFont = font();
     labelFont.setPointSize(9);
-
     QFont rulerFont = font();
     rulerFont.setPointSize(8);
-
     QFontMetrics fm(labelFont);
 
-    // --- Ruler ---
+    // Ruler
     QRect rulerRect(headerWidth_, 0, width() - headerWidth_, rulerHeight_);
     p.fillRect(rulerRect, CLR_RULER);
     p.fillRect(0, 0, headerWidth_, rulerHeight_, CLR_HEADER_BG);
 
-    int frameStep = 30; // every second @ 30fps
+    int frameStep = 30;
     p.setPen(QPen(CLR_GRID, 1));
     for (int f = 0; xForFrame(f) < width(); f += frameStep) {
         int x = xForFrame(f);
@@ -315,7 +361,6 @@ void TimelineWidget::paintEvent(QPaintEvent*)
         return;
     }
 
-    // --- Track rows ---
     for (int i = 0; i < tracks_.size(); ++i) {
         const TrackRow& row = tracks_[i];
         QRect hdr  = trackHeaderRect(i);
@@ -331,21 +376,18 @@ void TimelineWidget::paintEvent(QPaintEvent*)
         if (!row.visible) bodyBg = bodyBg.darker(140);
         p.fillRect(body, bodyBg);
 
-        // Vertical grid lines
         p.setPen(QPen(CLR_GRID, 1));
         for (int f = 0; xForFrame(f) < width(); f += frameStep) {
             int x = xForFrame(f);
             p.drawLine(x, body.top(), x, body.bottom());
         }
 
-        // Header separators
         p.setPen(QPen(QColor(0, 0, 0, 160), 1));
         p.drawRect(hdr.adjusted(0, 0, -1, -1));
         p.setPen(QPen(CLR_GRID, 1));
         p.drawLine(body.right(), body.top(), body.right(), body.bottom());
         p.drawLine(0, hdr.bottom(), width(), hdr.bottom());
 
-        // Track name + kind icon
         p.setPen(QColor(255, 255, 255, 230));
         p.setFont(labelFont);
         QString label = row.name;
@@ -355,14 +397,11 @@ void TimelineWidget::paintEvent(QPaintEvent*)
         p.drawText(hdr.adjusted(10, 6, 100, -6),
                    Qt::AlignVCenter | Qt::AlignLeft, label);
 
-        // Buttons: visible/mute, lock
         int btnSize = 24;
         int btnY = hdr.center().y() - btnSize / 2;
 
-        // Eye / mute (top right corner of header)
         QRect eyeBtn(hdr.right() - 84, btnY, btnSize, btnSize);
-        QColor eyeCol = row.visible ? CLR_BTN_ON : CLR_BTN_OFF;
-        p.setBrush(eyeCol);
+        p.setBrush(row.visible ? CLR_BTN_ON : CLR_BTN_OFF);
         p.setPen(QPen(QColor(0, 0, 0, 200), 1));
         p.drawRoundedRect(eyeBtn, 4, 4);
         p.drawPixmap(eyeBtn.adjusted(5, 5, -5, -5),
@@ -370,8 +409,7 @@ void TimelineWidget::paintEvent(QPaintEvent*)
                          .pixmap(14, 14));
 
         QRect muteBtn(hdr.right() - 54, btnY, btnSize, btnSize);
-        QColor muteCol = row.muted ? QColor(220, 90, 90) : CLR_BTN_OFF;
-        p.setBrush(muteCol);
+        p.setBrush(row.muted ? QColor(220, 90, 90) : CLR_BTN_OFF);
         p.setPen(QPen(QColor(0, 0, 0, 200), 1));
         p.drawRoundedRect(muteBtn, 4, 4);
         p.drawPixmap(muteBtn.adjusted(5, 5, -5, -5),
@@ -379,15 +417,13 @@ void TimelineWidget::paintEvent(QPaintEvent*)
                          .pixmap(14, 14));
 
         QRect lockBtn(hdr.right() - 24, btnY, btnSize, btnSize);
-        QColor lockCol = row.locked ? QColor(230, 200, 80) : CLR_BTN_OFF;
-        p.setBrush(lockCol);
+        p.setBrush(row.locked ? QColor(230, 200, 80) : CLR_BTN_OFF);
         p.setPen(QPen(QColor(0, 0, 0, 200), 1));
         p.drawRoundedRect(lockBtn, 4, 4);
         p.drawPixmap(lockBtn.adjusted(5, 5, -5, -5),
                      QIcon(row.locked ? ":/icons/lock-closed.svg" : ":/icons/lock-open.svg")
                          .pixmap(14, 14));
 
-        // Clips
         for (int ci = 0; ci < row.clips.size(); ++ci) {
             const auto& c = row.clips[ci];
             QRect cr = clipRect(i, c);
@@ -396,6 +432,12 @@ void TimelineWidget::paintEvent(QPaintEvent*)
             QColor clipBg = (row.kind == 0) ? CLR_CLIP_VID :
                             (row.kind == 1) ? CLR_CLIP_AUD :
                                                 CLR_CLIP_IMG;
+
+            // If clip has color adjustments, tint it slightly
+            if (c.adjust.brightness != 0 || c.adjust.saturation != 0 ||
+                c.adjust.hue != 0 || c.adjust.contrast != 0) {
+                clipBg = clipBg.lighter(100 + int(c.adjust.brightness * 30));
+            }
 
             QLinearGradient grad(cr.topLeft(), cr.bottomLeft());
             grad.setColorAt(0, clipBg.lighter(125));
@@ -410,13 +452,18 @@ void TimelineWidget::paintEvent(QPaintEvent*)
             p.drawRoundedRect(QRect(cr.x(), cr.y(), cr.width(), 3), 4, 4);
 
             // Selected highlight
+            if (selectedRow_ == i && selectedClipIdx_ == ci) {
+                p.setBrush(Qt::NoBrush);
+                p.setPen(QPen(CLR_SELECTED, 2));
+                p.drawRoundedRect(cr.adjusted(1, 1, -1, -1), 4, 4);
+            }
             if (dragMode_ == DragMode::MoveClip && dragRow_ == i && dragClipIdx_ == ci) {
                 p.setBrush(Qt::NoBrush);
                 p.setPen(QPen(CLR_SELECTED, 2));
                 p.drawRoundedRect(cr.adjusted(1, 1, -1, -1), 4, 4);
             }
 
-            // Trim handles (visual hint)
+            // Trim handles
             if (cr.width() > 24) {
                 p.setPen(QPen(QColor(255, 255, 255, 100), 1));
                 p.drawLine(cr.x() + 3, cr.y() + 4, cr.x() + 3, cr.bottom() - 4);
@@ -433,7 +480,6 @@ void TimelineWidget::paintEvent(QPaintEvent*)
             p.drawText(cr.adjusted(8, 4, -8, -4),
                        Qt::AlignVCenter | Qt::AlignLeft, clipLabel);
 
-            // Duration badge (if clip is wide enough)
             if (cr.width() > 80) {
                 QString dur = QString::asprintf("%.1fs", c.durationFrames / 30.0);
                 p.setPen(QColor(255, 255, 255, 160));
@@ -443,10 +489,22 @@ void TimelineWidget::paintEvent(QPaintEvent*)
                 p.drawText(cr.adjusted(8, 0, -8, -4),
                            Qt::AlignBottom | Qt::AlignRight, dur);
             }
+
+            // Fade-in / fade-out indicators
+            if (c.adjust.fadeIn > 0) {
+                int fx = cr.x() + static_cast<int>(c.adjust.fadeIn) * pixelsPerFrame_;
+                p.setPen(QPen(QColor(255, 255, 255, 180), 1, Qt::DashLine));
+                p.drawLine(cr.x(), cr.bottom() - 2, fx, cr.y() + 2);
+            }
+            if (c.adjust.fadeOut > 0) {
+                int fx = cr.right() - static_cast<int>(c.adjust.fadeOut) * pixelsPerFrame_;
+                p.setPen(QPen(QColor(255, 255, 255, 180), 1, Qt::DashLine));
+                p.drawLine(fx, cr.y() + 2, cr.right(), cr.bottom() - 2);
+            }
         }
     }
 
-    // --- Playhead ---
+    // Playhead
     int phX = xForFrame(playheadFrame_);
     p.setPen(QPen(CLR_PLAYHEAD, 2));
     p.drawLine(phX, 0, phX, height());
@@ -466,7 +524,6 @@ void TimelineWidget::mousePressEvent(QMouseEvent* e)
     int x = e->pos().x();
     int y = e->pos().y();
 
-    // Header area: handle buttons
     if (x < headerWidth_) {
         int r = rowAt(y);
         if (r >= 0) {
@@ -480,7 +537,6 @@ void TimelineWidget::mousePressEvent(QMouseEvent* e)
         return;
     }
 
-    // Ruler area: scrub playhead
     if (y < rulerHeight_) {
         playheadFrame_ = static_cast<uint64_t>(std::max(0, frameAt(x)));
         dragMode_ = DragMode::ScrubPlayhead;
@@ -489,16 +545,16 @@ void TimelineWidget::mousePressEvent(QMouseEvent* e)
         return;
     }
 
-    // Body: hit-test clips
     int row = -1, clipIdx = -1;
     DragMode m = hitTest(e->pos(), &row, &clipIdx);
     if (m != DragMode::None && row >= 0 && clipIdx >= 0) {
         const auto& c = tracks_[row].clips[clipIdx];
-        // Locked tracks can't be edited
+        selectedRow_ = row;
+        selectedClipIdx_ = clipIdx;
+        emit clipSelected(c.name, c.path, c.startFrame, c.durationFrames,
+                          c.trimInFrames, c.adjust, tracks_[row].id, c.id);
         if (tracks_[row].locked) {
-            emit clipSelected(c.name, c.path, c.startFrame, c.durationFrames,
-                              c.trimInFrames, c.volume, c.opacity, c.scale,
-                              tracks_[row].id, c.id);
+            update();
             return;
         }
         dragMode_ = m;
@@ -512,16 +568,14 @@ void TimelineWidget::mousePressEvent(QMouseEvent* e)
         dragNewDuration_   = c.durationFrames;
         dragNewTrimIn_     = c.trimInFrames;
         dragStartFrame_    = frameAt(x);
-        emit clipSelected(c.name, c.path, c.startFrame, c.durationFrames,
-                          c.trimInFrames, c.volume, c.opacity, c.scale,
-                          tracks_[row].id, c.id);
         update();
         return;
     }
 
-    // Empty area: scrub playhead
     playheadFrame_ = static_cast<uint64_t>(std::max(0, frameAt(x)));
     dragMode_ = DragMode::ScrubPlayhead;
+    selectedRow_ = -1;
+    selectedClipIdx_ = -1;
     update();
     emit playheadMoved(playheadFrame_);
 }
@@ -529,7 +583,6 @@ void TimelineWidget::mousePressEvent(QMouseEvent* e)
 void TimelineWidget::mouseMoveEvent(QMouseEvent* e)
 {
     if (dragMode_ == DragMode::None) {
-        // Cursor feedback
         int row = -1, ci = -1;
         DragMode m = hitTest(e->pos(), &row, &ci);
         if (m == DragMode::TrimClipLeft || m == DragMode::TrimClipRight) {
@@ -632,10 +685,7 @@ void TimelineWidget::dropEvent(QDropEvent* e)
 
     int r = rowAt(e->pos().y());
     if (r < 0) {
-        // Drop above tracks: if there are tracks, drop into first matching
-        // track by kind. Otherwise ignore.
         if (tracks_.isEmpty()) { e->ignore(); return; }
-        // Pick first track
         r = 0;
     }
     if (r >= tracks_.size()) { e->ignore(); return; }
@@ -644,7 +694,6 @@ void TimelineWidget::dropEvent(QDropEvent* e)
     uint64_t startFrame = static_cast<uint64_t>(std::max(0, frameAt(e->pos().x())));
     QString name = QFileInfo(path).fileName();
 
-    // Determine duration & dimensions from prober if available
     uint64_t duration = 150;
     int width = 0, height = 0;
     uint64_t mediaDurationFrames = 0;
@@ -659,10 +708,9 @@ void TimelineWidget::dropEvent(QDropEvent* e)
                 mediaDurationFrames = static_cast<uint64_t>(info.durationMs * fps / 1000.0);
                 duration = mediaDurationFrames;
             } else if (info.kind == "image") {
-                duration = 150; // 5s default for images @ 30fps
+                duration = 150;
             }
         } else {
-            // Not probed yet — kick off probe and add with default duration
             prober_->probeAsync(path);
         }
     }
@@ -678,12 +726,6 @@ void TimelineWidget::dropEvent(QDropEvent* e)
 
     refreshTracks();
     e->acceptProposedAction();
-}
-
-void TimelineWidget::ensureScrollbarIfNeeded()
-{
-    // (Future) if total width exceeds viewport, parent should provide a
-    // QScrollArea. For now we rely on the widget growing with the layout.
 }
 
 } // namespace beta

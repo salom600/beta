@@ -13,13 +13,6 @@ class MediaProber;
 /// Bottom panel: timeline with multiple tracks, a playback playhead,
 /// per-track lock / eye / mute controls, and clip blocks rendered
 /// manually with `paintEvent`.
-///
-/// Supports:
-///   • Drop media from MediaBrowser onto a track to add a clip
-///   • Click a clip's body to select it
-///   • Drag a clip body to move it along the timeline
-///   • Drag a clip's left/right edge (8 px) to trim
-///   • Click on the ruler to scrub the playhead
 class TimelineWidget : public QWidget {
     Q_OBJECT
 public:
@@ -37,12 +30,10 @@ public:
             uint64_t startFrame;
             uint64_t durationFrames;
             uint64_t trimInFrames;
+            EngineBridge::ClipAdjust adjust;
             int      mediaWidth  = 0;
             int      mediaHeight = 0;
             uint64_t mediaDurationFrames = 0;
-            double   volume   = 1.0;
-            double   opacity  = 1.0;
-            double   scale    = 1.0;
         };
         QList<Clip> clips;
     };
@@ -55,15 +46,34 @@ public:
     void refreshTracks();
     void setProjectId(uint64_t id);
 
+    /// Split the currently selected clip at the playhead.
+    /// Returns true if a split actually happened.
+    bool splitAtPlayhead();
+
+    /// Delete the currently selected clip.
+    bool deleteSelectedClip();
+
+    /// Merge the currently selected clip with the next clip on the
+    /// same track (if adjacent and from the same source).
+    bool mergeSelectedWithNext();
+
     /// Returns the snapshot of tracks (used by exporter).
     QList<TrackRow> tracks() const { return tracks_; }
+
+    /// Returns the playhead frame.
+    uint64_t playheadFrame() const { return playheadFrame_; }
+    void setPlayheadFrame(uint64_t f) { playheadFrame_ = f; update(); emit playheadMoved(f); }
 
 signals:
     void clipSelected(const QString& name, const QString& path,
                       uint64_t start, uint64_t duration,
-                      uint64_t trimIn, double volume, double opacity, double scale,
+                      uint64_t trimIn,
+                      const EngineBridge::ClipAdjust& adjust,
                       uint64_t trackId, uint64_t clipId);
     void playheadMoved(uint64_t frame);
+    /// Emitted whenever the timeline contents change (clip add/move/
+    /// trim/split/merge/delete) so external panels can refresh.
+    void timelineChanged();
 
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -80,8 +90,6 @@ private slots:
     void onPlayheadTimer();
 
 private:
-    void setupUi();
-    void ensureScrollbarIfNeeded();
     int  rowAt(int y) const;
     int  frameAt(int x) const;
     int  xForFrame(uint64_t frame) const;
@@ -93,6 +101,10 @@ private:
     void  toggleLock(uint64_t trackId);
     void  commitClipMove(int row, int clipIdx);
     void  commitClipTrim(int row, int clipIdx);
+
+    /// Find the clip currently under the playhead on the selected track.
+    /// Returns row + clip index, or {-1, -1} if none.
+    std::pair<int, int> clipUnderPlayhead() const;
 
     enum class DragMode { None, ScrubPlayhead, MoveClip, TrimClipLeft, TrimClipRight };
     DragMode hitTest(const QPoint& pos, int* outRow, int* outClipIdx) const;
@@ -126,6 +138,10 @@ private:
     uint64_t  dragNewStart_  = 0;
     uint64_t  dragNewDuration_ = 0;
     uint64_t  dragNewTrimIn_ = 0;
+
+    // Selected clip (for split/cut/merge)
+    int selectedRow_    = -1;
+    int selectedClipIdx_ = -1;
 };
 
 } // namespace beta

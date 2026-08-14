@@ -20,5 +20,9 @@
         <file alias="icons/plus.svg">icons/plus.svg</file>
         <file alias="icons/film.svg">icons/film.svg</file>
         <file alias="icons/app-icon.svg">icons/app-icon.svg</file>
+        <file alias="icons/cut.svg">icons/cut.svg</file>
+        <file alias="icons/merge.svg">icons/merge.svg</file>
+        <file alias="icons/delete.svg">icons/delete.svg</file>
+        <file alias="icons/split.svg">icons/split.svg</file>
     </qresource>
 </RCC>

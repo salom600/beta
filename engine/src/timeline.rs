@@ -39,10 +39,7 @@ impl Serialize for TrackKind {
     }
 }
 
-/// Per-track visibility / lock state, mirrored on the UI as:
-/// - Eye button (video/image tracks)
-/// - Mute button (audio tracks)
-/// - Lock button (any track)
+/// Per-track visibility / lock state.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[repr(C)]
 pub struct TrackState {
@@ -100,11 +97,44 @@ impl Track {
         v.sort_by_key(|c| c.start_frame);
         v
     }
+}
 
-    pub fn clips_sorted_mut(&mut self) -> Vec<&mut Clip> {
-        let mut v: Vec<&mut Clip> = self.clips.values_mut().collect();
-        v.sort_by_key(|c| c.start_frame);
-        v
+/// Color & transform adjustment for a clip. Defaults are neutral.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[repr(C)]
+pub struct ClipAdjust {
+    pub brightness: f32,   // -1.0 .. +1.0  (0 = neutral)
+    pub contrast:   f32,   // -1.0 .. +1.0  (0 = neutral)
+    pub saturation: f32,   // -1.0 .. +1.0  (0 = neutral)
+    pub hue:        f32,   // -180 .. +180  (0 = neutral)
+    pub pos_x:      f32,   // -1.0 .. +1.0  (offset relative to frame width)
+    pub pos_y:      f32,   // -1.0 .. +1.0
+    pub scale:      f32,   // 0.1 .. 4.0
+    pub rotation:   f32,   // degrees
+    pub speed:      f32,   // 0.25 .. 4.0  (1.0 = normal)
+    pub fade_in:    u64,   // frames
+    pub fade_out:   u64,   // frames
+    pub volume:     f32,   // 0.0 .. 2.0
+    pub opacity:    f32,   // 0.0 .. 1.0
+}
+
+impl Default for ClipAdjust {
+    fn default() -> Self {
+        Self {
+            brightness: 0.0,
+            contrast: 0.0,
+            saturation: 0.0,
+            hue: 0.0,
+            pos_x: 0.0,
+            pos_y: 0.0,
+            scale: 1.0,
+            rotation: 0.0,
+            speed: 1.0,
+            fade_in: 0,
+            fade_out: 0,
+            volume: 1.0,
+            opacity: 1.0,
+        }
     }
 }
 
@@ -116,9 +146,7 @@ pub struct Clip {
     pub start_frame: u64,
     pub duration_frames: u64,
     pub trim_in_frames: u64,
-    pub volume: f32,
-    pub opacity: f32,
-    pub scale: f32,
+    pub adjust: ClipAdjust,
     #[serde(skip)]
     pub media_width: u32,
     #[serde(skip)]
@@ -136,9 +164,7 @@ impl Default for Clip {
             start_frame: 0,
             duration_frames: 150,
             trim_in_frames: 0,
-            volume: 1.0,
-            opacity: 1.0,
-            scale: 1.0,
+            adjust: ClipAdjust::default(),
             media_width: 0,
             media_height: 0,
             media_duration_frames: 0,

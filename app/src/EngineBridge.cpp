@@ -11,6 +11,48 @@
 
 namespace beta {
 
+namespace {
+
+ClipAdjust parseAdjust(const QJsonObject& o)
+{
+    ClipAdjust a;
+    a.brightness = static_cast<float>(o.value("brightness").toDouble(0.0));
+    a.contrast   = static_cast<float>(o.value("contrast").toDouble(0.0));
+    a.saturation = static_cast<float>(o.value("saturation").toDouble(0.0));
+    a.hue        = static_cast<float>(o.value("hue").toDouble(0.0));
+    a.posX       = static_cast<float>(o.value("pos_x").toDouble(0.0));
+    a.posY       = static_cast<float>(o.value("pos_y").toDouble(0.0));
+    a.scale      = static_cast<float>(o.value("scale").toDouble(1.0));
+    a.rotation   = static_cast<float>(o.value("rotation").toDouble(0.0));
+    a.speed      = static_cast<float>(o.value("speed").toDouble(1.0));
+    a.fadeIn     = static_cast<uint64_t>(o.value("fade_in").toVariant().toULongLong());
+    a.fadeOut    = static_cast<uint64_t>(o.value("fade_out").toVariant().toULongLong());
+    a.volume     = static_cast<float>(o.value("volume").toDouble(1.0));
+    a.opacity    = static_cast<float>(o.value("opacity").toDouble(1.0));
+    return a;
+}
+
+::ClipAdjust toC(const ClipAdjust& a)
+{
+    ::ClipAdjust c;
+    c.brightness = a.brightness;
+    c.contrast   = a.contrast;
+    c.saturation = a.saturation;
+    c.hue        = a.hue;
+    c.pos_x      = a.posX;
+    c.pos_y      = a.posY;
+    c.scale      = a.scale;
+    c.rotation   = a.rotation;
+    c.speed      = a.speed;
+    c.fade_in    = a.fadeIn;
+    c.fade_out   = a.fadeOut;
+    c.volume     = a.volume;
+    c.opacity    = a.opacity;
+    return c;
+}
+
+} // namespace
+
 struct EngineBridge::Impl {
     EngineHandle handle = nullptr;
 };
@@ -53,8 +95,6 @@ bool EngineBridge::removeTrack(uint64_t projectId, uint64_t trackId)
 
 QList<uint64_t> EngineBridge::trackIds(uint64_t projectId) const
 {
-    // We use the JSON snapshot to get authoritative ids; the legacy
-    // track_count + track_name approach was brittle if tracks had gaps.
     QList<uint64_t> out;
     ProjectSnapshot s = snapshot(projectId);
     out.reserve(s.tracks.size());
@@ -135,6 +175,25 @@ bool EngineBridge::setClipProps(uint64_t projectId, uint64_t trackId, uint64_t c
                                   volume, opacity, scale) != 0;
 }
 
+bool EngineBridge::setClipAdjust(uint64_t projectId, uint64_t trackId, uint64_t clipId,
+                                  const ClipAdjust& a)
+{
+    return engine_set_clip_adjust(d_->handle, projectId, trackId, clipId, toC(a)) != 0;
+}
+
+uint64_t EngineBridge::splitClip(uint64_t projectId, uint64_t trackId, uint64_t clipId,
+                                  uint64_t splitFrame)
+{
+    return engine_split_clip(d_->handle, projectId, trackId, clipId, splitFrame);
+}
+
+bool EngineBridge::mergeClips(uint64_t projectId, uint64_t trackId,
+                               uint64_t leftClipId, uint64_t rightClipId)
+{
+    return engine_merge_clips(d_->handle, projectId, trackId,
+                               leftClipId, rightClipId) != 0;
+}
+
 EngineBridge::ProjectSnapshot EngineBridge::snapshot(uint64_t projectId) const
 {
     ProjectSnapshot snap;
@@ -180,9 +239,7 @@ EngineBridge::ProjectSnapshot EngineBridge::snapshot(uint64_t projectId) const
             c.startFrame        = static_cast<uint64_t>(co.value("start_frame").toVariant().toULongLong());
             c.durationFrames    = static_cast<uint64_t>(co.value("duration_frames").toVariant().toULongLong());
             c.trimInFrames      = static_cast<uint64_t>(co.value("trim_in_frames").toVariant().toULongLong());
-            c.volume            = static_cast<float>(co.value("volume").toDouble(1.0));
-            c.opacity           = static_cast<float>(co.value("opacity").toDouble(1.0));
-            c.scale             = static_cast<float>(co.value("scale").toDouble(1.0));
+            c.adjust            = parseAdjust(co.value("adjust").toObject());
             c.mediaWidth        = 0;
             c.mediaHeight       = 0;
             c.mediaDurationFrames = 0;
