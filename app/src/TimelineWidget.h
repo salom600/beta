@@ -158,7 +158,7 @@ private:
     class QTimer* playheadTimer_ = nullptr;
 
     // Tool
-    Tool::Kind tool_ = Tool::Select;
+    Tool::Kind tool_ = Tool::SelectTool;
 
     // Drag state
     DragMode  dragMode_   = DragMode::None;
