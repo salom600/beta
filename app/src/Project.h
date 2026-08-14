@@ -4,10 +4,10 @@
 #include <QUndoStack>
 #include <memory>
 #include <cstdint>
+#include "EngineBridge.h"
 
 namespace beta {
 
-class EngineBridge;
 class TimelineWidget;
 class MediaProber;
 

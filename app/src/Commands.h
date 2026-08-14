@@ -3,10 +3,10 @@
 #include <QUndoCommand>
 #include <QString>
 #include <cstdint>
+#include "EngineBridge.h"
 
 namespace beta {
 
-class EngineBridge;
 class TimelineWidget;
 
 /// Base class for all timeline-editing commands. Stores the project /
