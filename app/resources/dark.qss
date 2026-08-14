@@ -333,3 +333,54 @@ QFrame#panel {
     background: #232428;
     border-radius: 8px;
 }
+
+/* ---- Dock widgets ---- */
+QDockWidget {
+    titlebar-close-icon: none;
+    titlebar-normal-icon: none;
+}
+
+QDockWidget::title {
+    background: #2a2b30;
+    border-bottom: 1px solid #15161a;
+    padding: 4px 8px;
+    text-align: left;
+    color: #c8c9ce;
+    font-weight: 600;
+}
+
+QDockWidget::close-button,
+QDockWidget::float-button {
+    background: transparent;
+    border: none;
+    padding: 2px;
+}
+
+QDockWidget::close-button:hover,
+QDockWidget::float-button:hover {
+    background: #3a3b42;
+    border-radius: 3px;
+}
+
+/* ---- Tab bar (for dock widgets) ---- */
+QTabBar::tab {
+    background: #2a2b30;
+    color: #a0a1a6;
+    padding: 5px 12px;
+    border: 1px solid #15161a;
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    margin-right: 1px;
+}
+
+QTabBar::tab:selected {
+    background: #1e1f22;
+    color: #ffffff;
+    border-bottom: 2px solid #0e63d4;
+}
+
+QTabBar::tab:hover:!selected {
+    background: #3a3b42;
+    color: #ffffff;
+}

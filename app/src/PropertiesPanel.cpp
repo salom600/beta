@@ -1,5 +1,6 @@
 #include "PropertiesPanel.h"
 #include "EngineBridge.h"
+#include "Project.h"
 #include "TimelineWidget.h"
 
 #include <QCheckBox>
@@ -333,18 +334,6 @@ void PropertiesPanel::showClipInfo(const QString& name, const QString& path,
 void PropertiesPanel::onAdjustChanged()
 {
     if (!engine_ || !inClipMode_ || clipId_ == 0 || trackId_ == 0) return;
-    pushAdjustToEngine();
-    // Also push the basic clip props (start/duration/trim)
-    engine_->moveClip(projectId_, trackId_, clipId_,
-                      static_cast<uint64_t>(startFrame_->value()));
-    engine_->trimClip(projectId_, trackId_, clipId_,
-                      static_cast<uint64_t>(trimIn_->value()),
-                      static_cast<uint64_t>(duration_->value()));
-    if (timeline_) timeline_->refreshTracks();
-}
-
-void PropertiesPanel::pushAdjustToEngine()
-{
     EngineBridge::ClipAdjust a;
     a.brightness = brightness_->value() / 100.0f;
     a.contrast   = contrast_->value()   / 100.0f;
@@ -359,7 +348,46 @@ void PropertiesPanel::pushAdjustToEngine()
     a.fadeOut    = static_cast<uint64_t>(fadeOut_->value());
     a.volume     = volume_->value() / 100.0f;
     a.opacity    = opacity_->value() / 100.0f;
-    engine_->setClipAdjust(projectId_, trackId_, clipId_, a);
+
+    if (project_) {
+        project_->setAdjust(trackId_, clipId_, a);
+    } else {
+        engine_->setClipAdjust(projectId_, trackId_, clipId_, a);
+    }
+
+    // Basic clip props (start/duration/trim)
+    if (project_) {
+        // Snapshot current state, then push a trim command
+        auto snap = engine_->snapshot(projectId_);
+        for (const auto& t : snap.tracks) {
+            if (t.id == trackId_) {
+                for (const auto& c : t.clips) {
+                    if (c.id == clipId_) {
+                        project_->trimClip(trackId_, clipId_,
+                                            c.startFrame, c.durationFrames, c.trimInFrames,
+                                            static_cast<uint64_t>(startFrame_->value()),
+                                            static_cast<uint64_t>(duration_->value()),
+                                            static_cast<uint64_t>(trimIn_->value()));
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+    } else {
+        engine_->moveClip(projectId_, trackId_, clipId_,
+                          static_cast<uint64_t>(startFrame_->value()));
+        engine_->trimClip(projectId_, trackId_, clipId_,
+                          static_cast<uint64_t>(trimIn_->value()),
+                          static_cast<uint64_t>(duration_->value()));
+    }
+    if (timeline_) timeline_->refreshTracks();
+}
+
+void PropertiesPanel::pushAdjustToEngine()
+{
+    // Unused — kept for ABI stability. Adjustments are pushed via
+    // onAdjustChanged() through the Project's undo stack now.
 }
 
 void PropertiesPanel::onResetColor()

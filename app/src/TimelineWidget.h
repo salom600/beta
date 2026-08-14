@@ -1,25 +1,32 @@
 #pragma once
 
 #include <QList>
-#include <QMap>
 #include <QWidget>
 #include <cstdint>
 #include <utility>
 #include "EngineBridge.h"
+#include "Tool.h"
 
 namespace beta {
 
 class MediaProber;
+class Project;
 
-/// Bottom panel: timeline with multiple tracks, a playback playhead,
-/// per-track lock / eye / mute controls, and clip blocks rendered
-/// manually with `paintEvent`.
+/// Bottom panel: timeline with multiple tracks, playback playhead,
+/// per-track lock/eye/mute controls, and clip blocks rendered with
+/// `paintEvent`.
+///
+/// v0.4 redesign:
+///   • Tool-based interaction (Select / Razor / Spacer / Hand)
+///   • Snapping (playhead, clip edges, ruler marks)
+///   • Clip thumbnails for video, waveform overlay for audio
+///   • Routes all edits through Project's undo stack
 class TimelineWidget : public QWidget {
     Q_OBJECT
 public:
     struct TrackRow {
         uint64_t id;
-        int      kind;          // 0=video, 1=audio, 2=image
+        int      kind;
         QString  name;
         bool     visible = true;
         bool     locked  = false;
@@ -42,28 +49,36 @@ public:
     TimelineWidget(QWidget* parent, EngineBridge* engine, uint64_t projectId);
 
     void setProber(MediaProber* prober);
+    void setProject(Project* project);
 
     int trackCount() const { return tracks_.size(); }
     void refreshTracks();
     void setProjectId(uint64_t id);
 
-    /// Split the currently selected clip at the playhead.
-    /// Returns true if a split actually happened.
     bool splitAtPlayhead();
-
-    /// Delete the currently selected clip.
     bool deleteSelectedClip();
-
-    /// Merge the currently selected clip with the next clip on the
-    /// same track (if adjacent and from the same source).
     bool mergeSelectedWithNext();
 
-    /// Returns the snapshot of tracks (used by exporter).
-    QList<TrackRow> tracks() const { return tracks_; }
+    /// Snap a frame value to the nearest of: playhead, any clip edge,
+    /// or ruler second mark — within `threshold` frames.
+    uint64_t snapFrame(uint64_t frame, int threshold = 4) const;
 
-    /// Returns the playhead frame.
+    /// Move playhead to the start of the next cut after the current
+    /// playhead position.
+    void jumpToNextCut();
+    void jumpToPrevCut();
+
+    QList<TrackRow> tracks() const { return tracks_; }
     uint64_t playheadFrame() const { return playheadFrame_; }
     void setPlayheadFrame(uint64_t f) { playheadFrame_ = f; update(); emit playheadMoved(f); }
+
+    void setTool(Tool::Kind t) { tool_ = t; update(); }
+    Tool::Kind tool() const { return tool_; }
+
+    void setZoom(int pixelsPerFrame);
+    int  zoom() const { return pixelsPerFrame_; }
+
+    int  totalHeight() const;
 
 signals:
     void clipSelected(const QString& name, const QString& path,
@@ -72,9 +87,8 @@ signals:
                       const EngineBridge::ClipAdjust& adjust,
                       uint64_t trackId, uint64_t clipId);
     void playheadMoved(uint64_t frame);
-    /// Emitted whenever the timeline contents change (clip add/move/
-    /// trim/split/merge/delete) so external panels can refresh.
     void timelineChanged();
+    void toolChanged(Tool::Kind t);
 
 protected:
     void paintEvent(QPaintEvent* e) override;
@@ -100,18 +114,24 @@ private:
     void  toggleVisible(uint64_t trackId);
     void  toggleMute(uint64_t trackId);
     void  toggleLock(uint64_t trackId);
-    void  commitClipMove(int row, int clipIdx);
-    void  commitClipTrim(int row, int clipIdx);
 
-    /// Find the clip currently under the playhead on the selected track.
-    /// Returns row + clip index, or {-1, -1} if none.
+    /// Find the clip at the given point. Returns {row, clipIdx} or {-1,-1}.
+    std::pair<int, int> clipAt(const QPoint& pos) const;
+
+    /// Find the clip currently under the playhead on any track.
     std::pair<int, int> clipUnderPlayhead() const;
 
-    enum class DragMode { None, ScrubPlayhead, MoveClip, TrimClipLeft, TrimClipRight };
+    enum class DragMode { None, ScrubPlayhead, MoveClip, TrimClipLeft, TrimClipRight, Pan };
     DragMode hitTest(const QPoint& pos, int* outRow, int* outClipIdx) const;
+
+    void handleSelectPress(const QPoint& pos);
+    void handleRazorPress(const QPoint& pos);
+    void handleSpacerPress(const QPoint& pos);
+    void handleHandPress(const QPoint& pos);
 
     EngineBridge* engine_;
     MediaProber*  prober_ = nullptr;
+    Project*      project_ = nullptr;
     uint64_t      projectId_;
 
     QList<TrackRow> tracks_;
@@ -122,10 +142,14 @@ private:
     int rulerHeight_   = 32;
     int pixelsPerFrame_ = 4;
     int trimHandleWidth_ = 8;
+    int scrollY_ = 0;
 
     // Playhead
     uint64_t playheadFrame_ = 0;
     class QTimer* playheadTimer_ = nullptr;
+
+    // Tool
+    Tool::Kind tool_ = Tool::Select;
 
     // Drag state
     DragMode  dragMode_   = DragMode::None;
@@ -136,11 +160,13 @@ private:
     uint64_t  dragOrigDuration_ = 0;
     uint64_t  dragOrigTrimIn_ = 0;
     QPoint    dragAnchor_;
+    QPoint    panAnchor_;
     uint64_t  dragNewStart_  = 0;
     uint64_t  dragNewDuration_ = 0;
     uint64_t  dragNewTrimIn_ = 0;
+    bool      dragCommitted_ = false;
 
-    // Selected clip (for split/cut/merge)
+    // Selected clip
     int selectedRow_    = -1;
     int selectedClipIdx_ = -1;
 };

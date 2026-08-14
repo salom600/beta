@@ -3,13 +3,12 @@
 #include <QMainWindow>
 #include <memory>
 
-class QSplitter;
+class QDockWidget;
 class QToolBar;
 class QAction;
+class QActionGroup;
 class QLabel;
 class QProgressBar;
-class QDialog;
-class QPlainTextEdit;
 
 namespace beta {
 
@@ -21,6 +20,7 @@ class TimelineWidget;
 class PropertiesPanel;
 class Exporter;
 class ExportDialog;
+class Project;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -36,6 +36,10 @@ private slots:
     void onImportMedia();
     void onPlayPause();
     void onStop();
+    void onSkipStart();
+    void onSkipEnd();
+    void onNextCut();
+    void onPrevCut();
     void onAddVideoTrack();
     void onAddAudioTrack();
     void onAddImageTrack();
@@ -48,35 +52,54 @@ private slots:
     void onExportProgress(int percent, const QString& stage);
     void onExportFinished(bool success, const QString& msg);
     void onTimelineChanged();
+    void onPlayheadMoved(uint64_t frame);
+    void onToolSelect();
+    void onToolRazor();
+    void onToolSpacer();
+    void onToolHand();
+    void onUndo();
+    void onRedo();
+    void onZoomIn();
+    void onZoomOut();
 
 private:
     void setupActions();
-    void setupToolbar();
-    void setupCentral();
-    void setupStatusbar();
+    void setupToolbars();
+    void setupDockWidgets();
     void setupMenubar();
+    void setupStatusbar();
     void applyTheme();
     void openProject();
+    void setTool(Tool::Kind t);
 
     std::unique_ptr<EngineBridge> engine_;
     std::unique_ptr<MediaProber>  prober_;
     std::unique_ptr<Exporter>     exporter_;
-    uint64_t projectId_ = 0;
+    std::unique_ptr<Project>      project_;
 
-    QSplitter*    mainSplitter_  = nullptr;
-    QSplitter*    centerSplitter_ = nullptr;
-    QToolBar*     toolbar_       = nullptr;
-    QToolBar*     editToolbar_   = nullptr;
-    MediaBrowser* mediaBrowser_  = nullptr;
-    PreviewWidget* preview_      = nullptr;
-    TimelineWidget* timeline_    = nullptr;
-    PropertiesPanel* properties_ = nullptr;
-    QLabel*       statusLabel_   = nullptr;
-    QProgressBar* exportProgress_ = nullptr;
+    QDockWidget*   dockBin_       = nullptr;
+    QDockWidget*   dockMonitor_   = nullptr;
+    QDockWidget*   dockTimeline_  = nullptr;
+    QDockWidget*   dockProps_     = nullptr;
+    QToolBar*      mainToolbar_   = nullptr;
+    QToolBar*      toolToolbar_   = nullptr;
+    QToolBar*      editToolbar_   = nullptr;
+    MediaBrowser*  mediaBrowser_  = nullptr;
+    PreviewWidget* preview_       = nullptr;
+    TimelineWidget* timeline_     = nullptr;
+    PropertiesPanel* properties_  = nullptr;
+    QLabel*        statusLabel_   = nullptr;
+    QLabel*        timecodeLabel_ = nullptr;
+    QProgressBar*  exportProgress_ = nullptr;
 
+    QActionGroup* toolGroup_ = nullptr;
     QAction* actImport_        = nullptr;
     QAction* actPlayPause_     = nullptr;
     QAction* actStop_          = nullptr;
+    QAction* actSkipStart_     = nullptr;
+    QAction* actSkipEnd_       = nullptr;
+    QAction* actNextCut_       = nullptr;
+    QAction* actPrevCut_       = nullptr;
     QAction* actAddVideoTrack_ = nullptr;
     QAction* actAddAudioTrack_ = nullptr;
     QAction* actAddImageTrack_ = nullptr;
@@ -86,6 +109,14 @@ private:
     QAction* actDelete_        = nullptr;
     QAction* actExport_        = nullptr;
     QAction* actAbout_         = nullptr;
+    QAction* actUndo_          = nullptr;
+    QAction* actRedo_          = nullptr;
+    QAction* actZoomIn_        = nullptr;
+    QAction* actZoomOut_       = nullptr;
+    QAction* actToolSelect_    = nullptr;
+    QAction* actToolRazor_     = nullptr;
+    QAction* actToolSpacer_    = nullptr;
+    QAction* actToolHand_      = nullptr;
 };
 
 } // namespace beta

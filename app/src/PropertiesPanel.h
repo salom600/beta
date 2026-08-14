@@ -17,10 +17,11 @@ class QCheckBox;
 namespace beta {
 
 class TimelineWidget;
+class Project;
 
 /// Right-side panel. Shows properties of the currently selected clip
-/// or media asset. Edits are propagated to the engine via the
-/// EngineBridge so the timeline picks them up.
+/// or media asset. Edits are routed through the Project's undo stack
+/// so they can be undone/redone.
 class PropertiesPanel : public QWidget {
     Q_OBJECT
 public:
@@ -29,6 +30,7 @@ public:
     void setEngine(EngineBridge* engine) { engine_ = engine; }
     void setProjectId(uint64_t id)       { projectId_ = id; }
     void setTimeline(TimelineWidget* t)  { timeline_ = t; }
+    void setProject(Project* p)          { project_ = p; }
 
 public slots:
     void showMediaInfo(const QString& path, const QString& name);
@@ -57,7 +59,6 @@ private:
     QSpinBox*       duration_    = nullptr;
     QSpinBox*       trimIn_      = nullptr;
 
-    // Color group
     QSlider*        brightness_  = nullptr;
     QSlider*        contrast_    = nullptr;
     QSlider*        saturation_  = nullptr;
@@ -67,7 +68,6 @@ private:
     QLabel*         saturationVal_ = nullptr;
     QLabel*         hueVal_        = nullptr;
 
-    // Transform group
     QSlider*        posX_        = nullptr;
     QSlider*        posY_        = nullptr;
     QSlider*        scale_       = nullptr;
@@ -77,7 +77,6 @@ private:
     QLabel*         scaleVal_    = nullptr;
     QLabel*         rotationVal_ = nullptr;
 
-    // Speed / fade / audio
     QDoubleSpinBox* speedSpin_   = nullptr;
     QSpinBox*       fadeIn_      = nullptr;
     QSpinBox*       fadeOut_     = nullptr;
@@ -88,6 +87,7 @@ private:
 
     EngineBridge* engine_   = nullptr;
     TimelineWidget* timeline_ = nullptr;
+    Project*       project_ = nullptr;
     uint64_t      projectId_ = 0;
     uint64_t      trackId_  = 0;
     uint64_t      clipId_   = 0;

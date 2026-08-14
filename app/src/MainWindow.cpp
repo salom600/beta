@@ -7,10 +7,15 @@
 #include "PropertiesPanel.h"
 #include "ExportDialog.h"
 #include "Exporter.h"
+#include "Project.h"
+#include "Timecode.h"
+#include "Tool.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QDockWidget>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -25,7 +30,6 @@
 #include <QProgressBar>
 #include <QSettings>
 #include <QSpinBox>
-#include <QSplitter>
 #include <QStatusBar>
 #include <QStyle>
 #include <QStyleFactory>
@@ -40,21 +44,31 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
     setWindowTitle(tr("Beta — Video Editor"));
-    resize(1600, 950);
-    setMinimumSize(1200, 700);
+    resize(1680, 1000);
+    setMinimumSize(1280, 750);
     setWindowIcon(QIcon(":/icons/app-icon.svg"));
+    setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
 
-    engine_  = std::make_unique<EngineBridge>();
-    prober_  = std::make_unique<MediaProber>();
+    engine_   = std::make_unique<EngineBridge>();
+    prober_   = std::make_unique<MediaProber>();
     exporter_ = std::make_unique<Exporter>();
     openProject();
 
     applyTheme();
     setupActions();
+    setupDockWidgets();
+    setupToolbars();
     setupMenubar();
-    setupToolbar();
-    setupCentral();
     setupStatusbar();
+
+    // Restore window state
+    QSettings s;
+    if (s.contains("windowState")) {
+        restoreState(s.value("windowState").toByteArray(), 1);
+    }
+    if (s.contains("geometry")) {
+        restoreGeometry(s.value("geometry").toByteArray());
+    }
 }
 
 MainWindow::~MainWindow() = default;
@@ -62,14 +76,13 @@ MainWindow::~MainWindow() = default;
 void MainWindow::closeEvent(QCloseEvent* e)
 {
     QSettings s;
-    s.setValue("mainSplitter",   mainSplitter_->saveState());
-    s.setValue("centerSplitter", centerSplitter_->saveState());
+    s.setValue("geometry", saveGeometry());
+    s.setValue("windowState", saveState(1));
     e->accept();
 }
 
 void MainWindow::keyPressEvent(QKeyEvent* e)
 {
-    // Only intercept when not editing text in a QLineEdit / spinbox.
     QWidget* focus = QApplication::focusWidget();
     bool editingText = focus && (
         qobject_cast<QLineEdit*>(focus) ||
@@ -85,8 +98,21 @@ void MainWindow::keyPressEvent(QKeyEvent* e)
     case Qt::Key_Space:      onPlayPause(); return;
     case Qt::Key_S:          if (e->modifiers() == Qt::NoModifier) { onSplit(); return; } break;
     case Qt::Key_M:          if (e->modifiers() == Qt::NoModifier) { onMerge(); return; } break;
+    case Qt::Key_V:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::Select); return; } break;
+    case Qt::Key_C:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::Razor);  return; } break;
+    case Qt::Key_T:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::Spacer); return; } break;
+    case Qt::Key_H:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::Hand);   return; } break;
     case Qt::Key_Delete:
     case Qt::Key_Backspace: onDelete(); return;
+    case Qt::Key_Home:      onSkipStart(); return;
+    case Qt::Key_End:       onSkipEnd(); return;
+    case Qt::Key_PageDown:  onNextCut(); return;
+    case Qt::Key_PageUp:    onPrevCut(); return;
+    case Qt::Key_J:         /* TODO: shuttle backward */ return;
+    case Qt::Key_L:         /* TODO: shuttle forward */  return;
+    case Qt::Key_Plus:
+    case Qt::Key_Equal:     onZoomIn(); return;
+    case Qt::Key_Minus:     onZoomOut(); return;
     case Qt::Key_Left:
         if (e->modifiers() & Qt::ControlModifier) {
             timeline_->setPlayheadFrame(timeline_->playheadFrame() > 0 ? timeline_->playheadFrame() - 1 : 0);
@@ -106,9 +132,8 @@ void MainWindow::keyPressEvent(QKeyEvent* e)
 
 void MainWindow::openProject()
 {
-    projectId_ = engine_->createProject(tr("Untitled Project"));
-    engine_->addTrack(projectId_, EngineBridge::Video, tr("Video 1"));
-    engine_->addTrack(projectId_, EngineBridge::Audio, tr("Audio 1"));
+    project_ = std::make_unique<Project>(engine_.get(), prober_.get());
+    project_->setTimeline(nullptr); // will be set in setupDockWidgets
 }
 
 void MainWindow::applyTheme()
@@ -117,17 +142,17 @@ void MainWindow::applyTheme()
         qApp->setStyle(QStyleFactory::create("Fusion"));
     }
     QPalette p = qApp->palette();
-    p.setColor(QPalette::Window,          QColor( 30,  31,  34));
-    p.setColor(QPalette::WindowText,      QColor(230, 231, 236));
-    p.setColor(QPalette::Base,            QColor( 30,  31,  34));
-    p.setColor(QPalette::AlternateBase,   QColor( 37,  38,  42));
-    p.setColor(QPalette::Text,            QColor(230, 231, 236));
-    p.setColor(QPalette::Button,          QColor( 45,  46,  51));
-    p.setColor(QPalette::ButtonText,      QColor(230, 231, 236));
+    p.setColor(QPalette::Window,          QColor( 24,  25,  28));
+    p.setColor(QPalette::WindowText,      QColor(220, 221, 226));
+    p.setColor(QPalette::Base,            QColor( 28,  29,  32));
+    p.setColor(QPalette::AlternateBase,   QColor( 34,  35,  40));
+    p.setColor(QPalette::Text,            QColor(220, 221, 226));
+    p.setColor(QPalette::Button,          QColor( 40,  41,  46));
+    p.setColor(QPalette::ButtonText,      QColor(220, 221, 226));
     p.setColor(QPalette::BrightText,      Qt::white);
     p.setColor(QPalette::Highlight,       QColor( 14,  99, 212));
     p.setColor(QPalette::HighlightedText, Qt::white);
-    p.setColor(QPalette::ToolTipBase,     QColor( 45,  46,  51));
+    p.setColor(QPalette::ToolTipBase,     QColor( 40,  41,  46));
     p.setColor(QPalette::ToolTipText,     QColor(240, 240, 242));
     qApp->setPalette(p);
 
@@ -146,52 +171,236 @@ void MainWindow::setupActions()
 
     actPlayPause_ = new QAction(QIcon(":/icons/play.svg"), tr("&Play / Pause"), this);
     actPlayPause_->setShortcut(QKeySequence("Space"));
-    actPlayPause_->setToolTip(tr("Play / Pause (Space)"));
     connect(actPlayPause_, &QAction::triggered, this, &MainWindow::onPlayPause);
 
     actStop_ = new QAction(QIcon(":/icons/stop.svg"), tr("&Stop"), this);
-    actStop_->setToolTip(tr("Stop"));
     connect(actStop_, &QAction::triggered, this, &MainWindow::onStop);
 
+    actSkipStart_ = new QAction(tr("Skip to Start"), this);
+    actSkipStart_->setShortcut(QKeySequence("Home"));
+    connect(actSkipStart_, &QAction::triggered, this, &MainWindow::onSkipStart);
+
+    actSkipEnd_ = new QAction(tr("Skip to End"), this);
+    actSkipEnd_->setShortcut(QKeySequence("End"));
+    connect(actSkipEnd_, &QAction::triggered, this, &MainWindow::onSkipEnd);
+
+    actNextCut_ = new QAction(tr("Next Cut"), this);
+    actNextCut_->setShortcut(QKeySequence("PgDown"));
+    connect(actNextCut_, &QAction::triggered, this, &MainWindow::onNextCut);
+
+    actPrevCut_ = new QAction(tr("Previous Cut"), this);
+    actPrevCut_->setShortcut(QKeySequence("PgUp"));
+    connect(actPrevCut_, &QAction::triggered, this, &MainWindow::onPrevCut);
+
     actAddVideoTrack_ = new QAction(QIcon(":/icons/video-track.svg"), tr("Video Track"), this);
-    actAddVideoTrack_->setToolTip(tr("Add a video track"));
     connect(actAddVideoTrack_, &QAction::triggered, this, &MainWindow::onAddVideoTrack);
 
     actAddAudioTrack_ = new QAction(QIcon(":/icons/audio-track.svg"), tr("Audio Track"), this);
-    actAddAudioTrack_->setToolTip(tr("Add an audio track"));
     connect(actAddAudioTrack_, &QAction::triggered, this, &MainWindow::onAddAudioTrack);
 
     actAddImageTrack_ = new QAction(QIcon(":/icons/image-track.svg"), tr("Image Track"), this);
-    actAddImageTrack_->setToolTip(tr("Add an image track"));
     connect(actAddImageTrack_, &QAction::triggered, this, &MainWindow::onAddImageTrack);
 
-    actSplit_ = new QAction(QIcon(":/icons/scissors.svg"), tr("Split"), this);
+    actSplit_ = new QAction(QIcon(":/icons/split.svg"), tr("Split"), this);
     actSplit_->setShortcut(QKeySequence("S"));
-    actSplit_->setToolTip(tr("Split the clip at the playhead (S)"));
+    actSplit_->setToolTip(tr("Split clip at playhead (S)"));
     connect(actSplit_, &QAction::triggered, this, &MainWindow::onSplit);
 
-    actCut_ = new QAction(QIcon(":/icons/scissors.svg"), tr("Cut"), this);
+    actCut_ = new QAction(QIcon(":/icons/cut.svg"), tr("Cut"), this);
     actCut_->setShortcut(QKeySequence("Ctrl+X"));
-    actCut_->setToolTip(tr("Cut: split at playhead and remove the right half (Ctrl+X)"));
+    actCut_->setToolTip(tr("Cut: split + delete right half (Ctrl+X)"));
     connect(actCut_, &QAction::triggered, this, &MainWindow::onCut);
 
-    actMerge_ = new QAction(tr("Merge"), this);
+    actMerge_ = new QAction(QIcon(":/icons/merge.svg"), tr("Merge"), this);
     actMerge_->setShortcut(QKeySequence("M"));
-    actMerge_->setToolTip(tr("Merge the selected clip with the next (M)"));
+    actMerge_->setToolTip(tr("Merge with next clip (M)"));
     connect(actMerge_, &QAction::triggered, this, &MainWindow::onMerge);
 
-    actDelete_ = new QAction(tr("Delete"), this);
+    actDelete_ = new QAction(QIcon(":/icons/delete.svg"), tr("Delete"), this);
     actDelete_->setShortcut(QKeySequence("Del"));
-    actDelete_->setToolTip(tr("Delete the selected clip (Del)"));
+    actDelete_->setToolTip(tr("Delete selected clip (Del)"));
     connect(actDelete_, &QAction::triggered, this, &MainWindow::onDelete);
 
     actExport_ = new QAction(QIcon(":/icons/export.svg"), tr("&Export..."), this);
     actExport_->setShortcut(QKeySequence("Ctrl+E"));
-    actExport_->setToolTip(tr("Export project to a video file (Ctrl+E)"));
     connect(actExport_, &QAction::triggered, this, &MainWindow::onExport);
 
     actAbout_ = new QAction(tr("About Beta..."), this);
     connect(actAbout_, &QAction::triggered, this, &MainWindow::onAbout);
+
+    actUndo_ = new QAction(tr("&Undo"), this);
+    actUndo_->setShortcut(QKeySequence("Ctrl+Z"));
+    connect(actUndo_, &QAction::triggered, this, &MainWindow::onUndo);
+
+    actRedo_ = new QAction(tr("&Redo"), this);
+    actRedo_->setShortcut(QKeySequence("Ctrl+Shift+Z"));
+    connect(actRedo_, &QAction::triggered, this, &MainWindow::onRedo);
+
+    actZoomIn_ = new QAction(tr("Zoom In"), this);
+    actZoomIn_->setShortcut(QKeySequence("+"));
+    connect(actZoomIn_, &QAction::triggered, this, &MainWindow::onZoomIn);
+
+    actZoomOut_ = new QAction(tr("Zoom Out"), this);
+    actZoomOut_->setShortcut(QKeySequence("-"));
+    connect(actZoomOut_, &QAction::triggered, this, &MainWindow::onZoomOut);
+
+    // Tools
+    toolGroup_ = new QActionGroup(this);
+    toolGroup_->setExclusive(true);
+
+    actToolSelect_ = new QAction(QIcon(":/icons/split.svg"), tr("Select Tool"), this);
+    actToolSelect_->setShortcut(QKeySequence("V"));
+    actToolSelect_->setCheckable(true);
+    actToolSelect_->setChecked(true);
+    connect(actToolSelect_, &QAction::triggered, this, &MainWindow::onToolSelect);
+    toolGroup_->addAction(actToolSelect_);
+
+    actToolRazor_ = new QAction(QIcon(":/icons/cut.svg"), tr("Razor Tool"), this);
+    actToolRazor_->setShortcut(QKeySequence("C"));
+    actToolRazor_->setCheckable(true);
+    connect(actToolRazor_, &QAction::triggered, this, &MainWindow::onToolRazor);
+    toolGroup_->addAction(actToolRazor_);
+
+    actToolSpacer_ = new QAction(QIcon(":/icons/merge.svg"), tr("Spacer Tool"), this);
+    actToolSpacer_->setShortcut(QKeySequence("T"));
+    actToolSpacer_->setCheckable(true);
+    connect(actToolSpacer_, &QAction::triggered, this, &MainWindow::onToolSpacer);
+    toolGroup_->addAction(actToolSpacer_);
+
+    actToolHand_ = new QAction(tr("Hand Tool"), this);
+    actToolHand_->setShortcut(QKeySequence("H"));
+    actToolHand_->setCheckable(true);
+    connect(actToolHand_, &QAction::triggered, this, &MainWindow::onToolHand);
+    toolGroup_->addAction(actToolHand_);
+}
+
+void MainWindow::setupDockWidgets()
+{
+    // Project Bin (left)
+    dockBin_ = new QDockWidget(tr("Project Bin"), this);
+    dockBin_->setObjectName("ProjectBinDock");
+    dockBin_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    mediaBrowser_ = new MediaBrowser(dockBin_);
+    mediaBrowser_->setProber(prober_.get());
+    dockBin_->setWidget(mediaBrowser_);
+    addDockWidget(Qt::LeftDockWidgetArea, dockBin_);
+
+    // Monitor (center top — uses central widget area)
+    auto* central = new QWidget(this);
+    auto* centralLayout = new QVBoxLayout(central);
+    centralLayout->setContentsMargins(0, 0, 0, 0);
+    preview_ = new PreviewWidget(central);
+    preview_->setProber(prober_.get());
+    centralLayout->addWidget(preview_);
+    setCentralWidget(central);
+
+    // Timeline (bottom)
+    dockTimeline_ = new QDockWidget(tr("Timeline"), this);
+    dockTimeline_->setObjectName("TimelineDock");
+    dockTimeline_->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
+    timeline_ = new TimelineWidget(dockTimeline_, engine_.get(), project_->id());
+    timeline_->setProber(prober_.get());
+    timeline_->setProject(project_.get());
+    project_->setTimeline(timeline_);
+    dockTimeline_->setWidget(timeline_);
+    addDockWidget(Qt::BottomDockWidgetArea, dockTimeline_);
+
+    // Properties (right)
+    dockProps_ = new QDockWidget(tr("Properties"), this);
+    dockProps_->setObjectName("PropertiesDock");
+    dockProps_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    properties_ = new PropertiesPanel(dockProps_);
+    properties_->setEngine(engine_.get());
+    properties_->setProjectId(project_->id());
+    properties_->setTimeline(timeline_);
+    properties_->setProject(project_.get());
+    dockProps_->setWidget(properties_);
+    addDockWidget(Qt::RightDockWidgetArea, dockProps_);
+
+    // Wire signals
+    connect(mediaBrowser_, &MediaBrowser::mediaActivated,
+            this, [this](const QString& path, const QString& name) {
+        properties_->showMediaInfo(path, name);
+    });
+    connect(mediaBrowser_, &MediaBrowser::mediaActivated,
+            preview_, &PreviewWidget::loadMedia);
+    connect(timeline_, &TimelineWidget::clipSelected,
+            properties_, &PropertiesPanel::showClipInfo);
+    connect(timeline_, &TimelineWidget::timelineChanged,
+            this, &MainWindow::onTimelineChanged);
+    connect(timeline_, &TimelineWidget::playheadMoved,
+            this, &MainWindow::onPlayheadMoved);
+    connect(timeline_, &TimelineWidget::toolChanged,
+            this, [this](Tool::Kind t) {
+        switch (t) {
+            case Tool::Select: actToolSelect_->setChecked(true); break;
+            case Tool::Razor:  actToolRazor_->setChecked(true);  break;
+            case Tool::Spacer: actToolSpacer_->setChecked(true); break;
+            case Tool::Hand:   actToolHand_->setChecked(true);   break;
+        }
+    });
+
+    connect(exporter_.get(), &Exporter::progress,
+            this, &MainWindow::onExportProgress);
+    connect(exporter_.get(), &Exporter::finished,
+            this, &MainWindow::onExportFinished);
+
+    // Hook undo/redo to project's QUndoStack
+    actUndo_->setEnabled(project_->undoStack()->canUndo());
+    actRedo_->setEnabled(project_->undoStack()->canRedo());
+    connect(project_->undoStack(), &QUndoStack::canUndoChanged,
+            actUndo_, &QAction::setEnabled);
+    connect(project_->undoStack(), &QUndoStack::canRedoChanged,
+            actRedo_, &QAction::setEnabled);
+}
+
+void MainWindow::setupToolbars()
+{
+    mainToolbar_ = addToolBar(tr("Main"));
+    mainToolbar_->setObjectName("MainToolbar");
+    mainToolbar_->setMovable(false);
+    mainToolbar_->setIconSize(QSize(20, 20));
+    mainToolbar_->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    mainToolbar_->addAction(actImport_);
+    mainToolbar_->addSeparator();
+    mainToolbar_->addAction(actSkipStart_);
+    mainToolbar_->addAction(actPlayPause_);
+    mainToolbar_->addAction(actStop_);
+    mainToolbar_->addAction(actSkipEnd_);
+    mainToolbar_->addAction(actPrevCut_);
+    mainToolbar_->addAction(actNextCut_);
+    mainToolbar_->addSeparator();
+    mainToolbar_->addAction(actAddVideoTrack_);
+    mainToolbar_->addAction(actAddAudioTrack_);
+    mainToolbar_->addAction(actAddImageTrack_);
+    mainToolbar_->addSeparator();
+    mainToolbar_->addAction(actExport_);
+
+    toolToolbar_ = addToolBar(tr("Tools"));
+    toolToolbar_->setObjectName("ToolToolbar");
+    toolToolbar_->setMovable(false);
+    toolToolbar_->setIconSize(QSize(20, 20));
+    toolToolbar_->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    toolToolbar_->addAction(actToolSelect_);
+    toolToolbar_->addAction(actToolRazor_);
+    toolToolbar_->addAction(actToolSpacer_);
+    toolToolbar_->addAction(actToolHand_);
+
+    editToolbar_ = addToolBar(tr("Edit"));
+    editToolbar_->setObjectName("EditToolbar");
+    editToolbar_->setMovable(false);
+    editToolbar_->setIconSize(QSize(20, 20));
+    editToolbar_->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    editToolbar_->addAction(actUndo_);
+    editToolbar_->addAction(actRedo_);
+    editToolbar_->addSeparator();
+    editToolbar_->addAction(actSplit_);
+    editToolbar_->addAction(actCut_);
+    editToolbar_->addAction(actMerge_);
+    editToolbar_->addAction(actDelete_);
+    editToolbar_->addSeparator();
+    editToolbar_->addAction(actZoomIn_);
+    editToolbar_->addAction(actZoomOut_);
 }
 
 void MainWindow::setupMenubar()
@@ -204,127 +413,75 @@ void MainWindow::setupMenubar()
     fileMenu->addAction(tr("Quit"), this, &QWidget::close, QKeySequence("Ctrl+Q"));
 
     auto* editMenu = menuBar()->addMenu(tr("&Edit"));
+    editMenu->addAction(actUndo_);
+    editMenu->addAction(actRedo_);
+    editMenu->addSeparator();
     editMenu->addAction(actSplit_);
     editMenu->addAction(actCut_);
     editMenu->addAction(actMerge_);
     editMenu->addAction(actDelete_);
 
-    auto* trackMenu = menuBar()->addMenu(tr("&Track"));
-    trackMenu->addAction(actAddVideoTrack_);
-    trackMenu->addAction(actAddAudioTrack_);
-    trackMenu->addAction(actAddImageTrack_);
+    auto* viewMenu = menuBar()->addMenu(tr("&View"));
+    viewMenu->addAction(actZoomIn_);
+    viewMenu->addAction(actZoomOut_);
+    viewMenu->addSeparator();
+    viewMenu->addAction(dockBin_->toggleViewAction());
+    viewMenu->addAction(dockProps_->toggleViewAction());
+    viewMenu->addAction(dockTimeline_->toggleViewAction());
+
+    auto* clipMenu = menuBar()->addMenu(tr("&Clip"));
+    clipMenu->addAction(actSplit_);
+    clipMenu->addAction(actCut_);
+    clipMenu->addAction(actMerge_);
+    clipMenu->addAction(actDelete_);
+
+    auto* sequenceMenu = menuBar()->addMenu(tr("&Sequence"));
+    sequenceMenu->addAction(actAddVideoTrack_);
+    sequenceMenu->addAction(actAddAudioTrack_);
+    sequenceMenu->addAction(actAddImageTrack_);
 
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
     helpMenu->addAction(actAbout_);
 }
 
-void MainWindow::setupToolbar()
-{
-    toolbar_ = addToolBar(tr("Main"));
-    toolbar_->setObjectName("MainToolbar");
-    toolbar_->setMovable(false);
-    toolbar_->setIconSize(QSize(20, 20));
-    toolbar_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-
-    toolbar_->addAction(actImport_);
-    toolbar_->addSeparator();
-    toolbar_->addAction(actPlayPause_);
-    toolbar_->addAction(actStop_);
-    toolbar_->addSeparator();
-    toolbar_->addAction(actAddVideoTrack_);
-    toolbar_->addAction(actAddAudioTrack_);
-    toolbar_->addAction(actAddImageTrack_);
-    toolbar_->addSeparator();
-    toolbar_->addAction(actExport_);
-
-    // Secondary edit toolbar
-    editToolbar_ = addToolBar(tr("Edit"));
-    editToolbar_->setObjectName("EditToolbar");
-    editToolbar_->setMovable(false);
-    editToolbar_->setIconSize(QSize(20, 20));
-    editToolbar_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    editToolbar_->addAction(actSplit_);
-    editToolbar_->addAction(actCut_);
-    editToolbar_->addAction(actMerge_);
-    editToolbar_->addAction(actDelete_);
-}
-
-void MainWindow::setupCentral()
-{
-    mainSplitter_ = new QSplitter(Qt::Horizontal, this);
-    mainSplitter_->setHandleWidth(2);
-    centerSplitter_ = new QSplitter(Qt::Vertical, mainSplitter_);
-
-    mediaBrowser_ = new MediaBrowser(mainSplitter_);
-    mediaBrowser_->setProber(prober_.get());
-
-    preview_ = new PreviewWidget(centerSplitter_);
-    preview_->setProber(prober_.get());
-    timeline_ = new TimelineWidget(centerSplitter_, engine_.get(), projectId_);
-    timeline_->setProber(prober_.get());
-    properties_ = new PropertiesPanel(mainSplitter_);
-    properties_->setEngine(engine_.get());
-    properties_->setProjectId(projectId_);
-    properties_->setTimeline(timeline_);
-
-    centerSplitter_->addWidget(preview_);
-    centerSplitter_->addWidget(timeline_);
-    centerSplitter_->setStretchFactor(0, 3);
-    centerSplitter_->setStretchFactor(1, 2);
-
-    mainSplitter_->addWidget(mediaBrowser_);
-    mainSplitter_->addWidget(centerSplitter_);
-    mainSplitter_->addWidget(properties_);
-    mainSplitter_->setStretchFactor(0, 1);
-    mainSplitter_->setStretchFactor(1, 5);
-    mainSplitter_->setStretchFactor(2, 1);
-
-    QSettings s;
-    if (s.contains("mainSplitter")) {
-        mainSplitter_->restoreState(s.value("mainSplitter").toByteArray());
-    } else {
-        mainSplitter_->setSizes({ 280, 1080, 320 });
-    }
-    if (s.contains("centerSplitter")) {
-        centerSplitter_->restoreState(s.value("centerSplitter").toByteArray());
-    } else {
-        centerSplitter_->setSizes({ 480, 380 });
-    }
-
-    setCentralWidget(mainSplitter_);
-
-    connect(mediaBrowser_, &MediaBrowser::mediaActivated,
-            this, [this](const QString& path, const QString& name) {
-        properties_->showMediaInfo(path, name);
-    });
-    connect(mediaBrowser_, &MediaBrowser::mediaActivated,
-            preview_, &PreviewWidget::loadMedia);
-    connect(timeline_, &TimelineWidget::clipSelected,
-            properties_, &PropertiesPanel::showClipInfo);
-    connect(timeline_, &TimelineWidget::timelineChanged,
-            this, &MainWindow::onTimelineChanged);
-
-    connect(exporter_.get(), &Exporter::progress,
-            this, &MainWindow::onExportProgress);
-    connect(exporter_.get(), &Exporter::finished,
-            this, &MainWindow::onExportFinished);
-}
-
 void MainWindow::setupStatusbar()
 {
-    statusLabel_ = new QLabel(tr("Engine v%1  •  Project #%2")
-                                  .arg(engine_->engineVersion())
-                                  .arg(projectId_));
+    statusLabel_ = new QLabel(tr("Engine v%1").arg(engine_->engineVersion()));
     statusBar()->addWidget(statusLabel_, 1);
+
+    timecodeLabel_ = new QLabel("00:00:00:00");
+    timecodeLabel_->setStyleSheet(
+        "font-family: 'Menlo','Consolas','DejaVu Sans Mono',monospace;"
+        "font-size: 13px;"
+        "color: #ffaa55;"
+        "padding: 2px 8px;"
+        "background: #15161a;"
+        "border-radius: 3px;");
+    statusBar()->addPermanentWidget(timecodeLabel_);
 
     exportProgress_ = new QProgressBar(statusBar());
     exportProgress_->setRange(0, 100);
     exportProgress_->setValue(0);
     exportProgress_->setMaximumWidth(240);
     exportProgress_->setVisible(false);
-    exportProgress_->setTextVisible(true);
     statusBar()->addPermanentWidget(exportProgress_);
 }
+
+void MainWindow::setTool(Tool::Kind t)
+{
+    timeline_->setTool(t);
+    switch (t) {
+        case Tool::Select: actToolSelect_->setChecked(true); break;
+        case Tool::Razor:  actToolRazor_->setChecked(true);  break;
+        case Tool::Spacer: actToolSpacer_->setChecked(true); break;
+        case Tool::Hand:   actToolHand_->setChecked(true);   break;
+    }
+}
+
+void MainWindow::onToolSelect() { setTool(Tool::Select); }
+void MainWindow::onToolRazor()  { setTool(Tool::Razor);  }
+void MainWindow::onToolSpacer() { setTool(Tool::Spacer); }
+void MainWindow::onToolHand()   { setTool(Tool::Hand);   }
 
 void MainWindow::onImportMedia()
 {
@@ -335,46 +492,48 @@ void MainWindow::onImportMedia()
            "*.png *.jpg *.jpeg *.bmp *.gif *.webp *.tiff);;All Files (*)"));
     for (const QString& f : files) {
         mediaBrowser_->addMedia(f);
+        project_->importMedia(f);
     }
 }
 
 void MainWindow::onPlayPause() { preview_->togglePlayPause(); }
 void MainWindow::onStop()      { preview_->stop(); }
+void MainWindow::onSkipStart() { timeline_->setPlayheadFrame(0); }
+void MainWindow::onSkipEnd()   { timeline_->setPlayheadFrame(UINT64_MAX); }
+void MainWindow::onNextCut()   { timeline_->jumpToNextCut(); }
+void MainWindow::onPrevCut()   { timeline_->jumpToPrevCut(); }
 
 void MainWindow::onAddVideoTrack()
 {
     int n = timeline_->trackCount();
-    engine_->addTrack(projectId_, EngineBridge::Video, tr("Video %1").arg(n + 1));
+    engine_->addTrack(project_->id(), EngineBridge::Video, tr("Video %1").arg(n + 1));
     timeline_->refreshTracks();
 }
 
 void MainWindow::onAddAudioTrack()
 {
     int n = timeline_->trackCount();
-    engine_->addTrack(projectId_, EngineBridge::Audio, tr("Audio %1").arg(n + 1));
+    engine_->addTrack(project_->id(), EngineBridge::Audio, tr("Audio %1").arg(n + 1));
     timeline_->refreshTracks();
 }
 
 void MainWindow::onAddImageTrack()
 {
     int n = timeline_->trackCount();
-    engine_->addTrack(projectId_, EngineBridge::Image, tr("Image %1").arg(n + 1));
+    engine_->addTrack(project_->id(), EngineBridge::Image, tr("Image %1").arg(n + 1));
     timeline_->refreshTracks();
 }
 
 void MainWindow::onSplit()
 {
     if (timeline_->splitAtPlayhead()) {
-        statusBar()->showMessage(tr("Clip split at playhead."), 2000);
+        statusBar()->showMessage(tr("Split at playhead."), 2000);
     }
 }
 
 void MainWindow::onCut()
 {
-    // Cut = split at playhead, then delete the right-hand clip.
     if (!timeline_->splitAtPlayhead()) return;
-    // After split, the playhead is at the boundary; the clip to its
-    // right is the new one. Move playhead one frame forward and delete.
     timeline_->setPlayheadFrame(timeline_->playheadFrame() + 1);
     timeline_->deleteSelectedClip();
     statusBar()->showMessage(tr("Cut at playhead."), 2000);
@@ -395,10 +554,14 @@ void MainWindow::onDelete()
     }
 }
 
+void MainWindow::onUndo() { project_->undoStack()->undo(); }
+void MainWindow::onRedo() { project_->undoStack()->redo(); }
+void MainWindow::onZoomIn()  { timeline_->setZoom(timeline_->zoom() + 2); }
+void MainWindow::onZoomOut() { timeline_->setZoom(timeline_->zoom() - 2); }
+
 void MainWindow::onTimelineChanged()
 {
-    // Refresh status bar with project stats
-    auto snap = engine_->snapshot(projectId_);
+    auto snap = engine_->snapshot(project_->id());
     int totalClips = 0;
     for (const auto& t : snap.tracks) totalClips += t.clips.size();
     statusLabel_->setText(tr("Engine v%1  •  %2 tracks  •  %3 clips")
@@ -407,15 +570,20 @@ void MainWindow::onTimelineChanged()
                               .arg(totalClips));
 }
 
+void MainWindow::onPlayheadMoved(uint64_t frame)
+{
+    timecodeLabel_->setText(Timecode::fromFrames(frame, 30.0));
+}
+
 void MainWindow::onExport()
 {
     if (exporter_->isRunning()) {
         QMessageBox::information(this, tr("Export"),
-            tr("An export is already in progress. Please wait for it to finish."));
+            tr("An export is already in progress."));
         return;
     }
 
-    auto snap = engine_->snapshot(projectId_);
+    auto snap = engine_->snapshot(project_->id());
     int totalClips = 0;
     for (const auto& t : snap.tracks) totalClips += t.clips.size();
     if (totalClips == 0) {
@@ -497,13 +665,17 @@ void MainWindow::onAbout()
         tr("<h3>Beta Video Editor</h3>"
            "<p>A hybrid Rust + C++/Qt6 video editor.</p>"
            "<p><b>Engine:</b> v%1</p>"
-           "<p><b>Features:</b><br>"
+           "<p><b>v0.4 architecture:</b><br>"
+           "• Undo/Redo via QUndoStack<br>"
+           "• Tool-based editing (Select / Razor / Spacer / Hand)<br>"
+           "• Dockable panels (Project Bin / Monitor / Timeline / Properties)<br>"
+           "• Snapping to playhead, clip edges, ruler marks<br>"
+           "• Clip thumbnails for video, waveforms for audio<br>"
+           "• Timecode display<br>"
+           "• Standard NLE shortcuts (V/C/T/H, J/K/L, I/O, Home/End, PgUp/PgDn, +/-)<br>"
            "• Drag &amp; drop media onto the timeline<br>"
-           "• Real media probing + thumbnails<br>"
-           "• Clip drag / trim / split / merge / delete<br>"
            "• Color &amp; transform adjustments per clip<br>"
-           "• FFmpeg-based export<br>"
-           "• Modern dark UI with custom icons</p>"
+           "• FFmpeg-based export</p>"
            "<p>Repository: github.com/salom600/beta</p>")
             .arg(engine_->engineVersion()));
 }

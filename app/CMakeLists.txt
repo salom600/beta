@@ -23,6 +23,8 @@ set(APP_SOURCES
     src/EngineBridge.cpp
     src/ExportDialog.cpp
     src/Exporter.cpp
+    src/Project.cpp
+    src/Commands.cpp
 )
 
 set(APP_HEADERS
@@ -35,6 +37,10 @@ set(APP_HEADERS
     src/EngineBridge.h
     src/ExportDialog.h
     src/Exporter.h
+    src/Project.h
+    src/Commands.h
+    src/Tool.h
+    src/Timecode.h
 )
 
 set(APP_RESOURCES
