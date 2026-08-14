@@ -35,6 +35,7 @@
 #include <QStyleFactory>
 #include <QTimer>
 #include <QToolBar>
+#include <QVBoxLayout>
 #include <QFile>
 #include <QPixmap>
 

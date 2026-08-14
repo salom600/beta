@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 #include <memory>
+#include "Tool.h"
 
 class QDockWidget;
 class QToolBar;
