@@ -19,6 +19,7 @@ class MediaProber;
 class PreviewWidget;
 class TimelineWidget;
 class PropertiesPanel;
+class EffectsPanel;
 class Exporter;
 class ExportDialog;
 class Project;
@@ -82,6 +83,7 @@ private:
     QDockWidget*   dockMonitor_   = nullptr;
     QDockWidget*   dockTimeline_  = nullptr;
     QDockWidget*   dockProps_     = nullptr;
+    QDockWidget*   dockEffects_   = nullptr;
     QToolBar*      mainToolbar_   = nullptr;
     QToolBar*      toolToolbar_   = nullptr;
     QToolBar*      editToolbar_   = nullptr;
@@ -89,6 +91,7 @@ private:
     PreviewWidget* preview_       = nullptr;
     TimelineWidget* timeline_     = nullptr;
     PropertiesPanel* properties_  = nullptr;
+    EffectsPanel*  effectsPanel_  = nullptr;
     QLabel*        statusLabel_   = nullptr;
     QLabel*        timecodeLabel_ = nullptr;
     QProgressBar*  exportProgress_ = nullptr;

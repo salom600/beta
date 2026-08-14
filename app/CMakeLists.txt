@@ -25,6 +25,7 @@ set(APP_SOURCES
     src/Exporter.cpp
     src/Project.cpp
     src/Commands.cpp
+    src/EffectsPanel.cpp
 )
 
 set(APP_HEADERS
@@ -43,6 +44,7 @@ set(APP_HEADERS
     src/Timecode.h
     src/UndoHelper.h
     src/SnapModel.h
+    src/EffectsPanel.h
 )
 
 set(APP_RESOURCES

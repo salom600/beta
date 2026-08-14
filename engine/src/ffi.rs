@@ -379,7 +379,7 @@ pub extern "C" fn engine_version() -> *mut c_char {
 
 #[no_mangle]
 pub extern "C" fn engine_version_static() -> *const c_char {
-    static VERSION: &[u8] = b"0.5.0\0";
+    static VERSION: &[u8] = b"0.6.0\0";
     VERSION.as_ptr() as *const c_char
 }
 

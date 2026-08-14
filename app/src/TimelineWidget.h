@@ -146,11 +146,11 @@ private:
     QList<TrackRow> tracks_;
 
     // Layout constants
-    int headerWidth_   = 220;
-    int rowHeight_     = 72;
-    int rulerHeight_   = 32;
+    int headerWidth_   = 240;
+    int rowHeight_     = 80;
+    int rulerHeight_   = 36;
     int pixelsPerFrame_ = 4;
-    int trimHandleWidth_ = 8;
+    int trimHandleWidth_ = 10;
     int scrollY_ = 0;
 
     // Playhead

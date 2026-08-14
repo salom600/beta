@@ -5,6 +5,7 @@
 #include "PreviewWidget.h"
 #include "TimelineWidget.h"
 #include "PropertiesPanel.h"
+#include "EffectsPanel.h"
 #include "ExportDialog.h"
 #include "Exporter.h"
 #include "Project.h"
@@ -324,6 +325,17 @@ void MainWindow::setupDockWidgets()
     dockProps_->setWidget(properties_);
     addDockWidget(Qt::RightDockWidgetArea, dockProps_);
 
+    // Effects panel (tabbed with Properties, like Kdenlive's effect stack)
+    dockEffects_ = new QDockWidget(tr("Effects"), this);
+    dockEffects_->setObjectName("EffectsDock");
+    dockEffects_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    effectsPanel_ = new EffectsPanel(dockEffects_);
+    dockEffects_->setWidget(effectsPanel_);
+    addDockWidget(Qt::RightDockWidgetArea, dockEffects_);
+    // Tabify Effects + Properties so they share the right dock area
+    tabifyDockWidget(dockProps_, dockEffects_);
+    dockProps_->raise();
+
     // Wire signals
     connect(mediaBrowser_, &MediaBrowser::mediaActivated,
             this, [this](const QString& path, const QString& name) {
@@ -440,6 +452,7 @@ void MainWindow::setupMenubar()
     viewMenu->addSeparator();
     viewMenu->addAction(dockBin_->toggleViewAction());
     viewMenu->addAction(dockProps_->toggleViewAction());
+    viewMenu->addAction(dockEffects_->toggleViewAction());
     viewMenu->addAction(dockTimeline_->toggleViewAction());
 
     auto* clipMenu = menuBar()->addMenu(tr("&Clip"));

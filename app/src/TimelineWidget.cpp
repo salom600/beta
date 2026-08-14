@@ -31,24 +31,35 @@
 namespace beta {
 
 namespace {
-const QColor CLR_BG         ( 24,  25,  28);
-const QColor CLR_ALT_BG     ( 30,  31,  34);
-const QColor CLR_HEADER_BG  ( 38,  39,  44);
-const QColor CLR_HEADER_VID ( 32,  55, 100);
-const QColor CLR_HEADER_AUD ( 60,  42,  95);
-const QColor CLR_HEADER_IMG (100,  68,  36);
-const QColor CLR_RULER      ( 20,  21,  24);
-const QColor CLR_GRID       ( 48,  49,  56);
-const QColor CLR_TEXT       (220, 221, 226);
-const QColor CLR_TEXT_DIM   (130, 131, 138);
-const QColor CLR_PLAYHEAD   (255, 110, 110);
-const QColor CLR_CLIP_VID   ( 60, 130, 200);
-const QColor CLR_CLIP_AUD   (140,  90, 200);
-const QColor CLR_CLIP_IMG   (220, 150,  60);
-const QColor CLR_SELECTED   (255, 200,  90);
-const QColor CLR_BTN_ON     ( 14,  99, 212);
-const QColor CLR_BTN_OFF    ( 55,  56,  64);
-const QColor CLR_SNAP       (255, 255, 150);
+// Kdenlive-inspired palette — more saturated, professional
+const QColor CLR_BG           ( 22,  23,  26);
+const QColor CLR_ALT_BG       ( 28,  29,  33);
+const QColor CLR_HEADER_BG    ( 36,  37,  42);
+const QColor CLR_HEADER_VID   ( 42,  85, 145);
+const QColor CLR_HEADER_AUD   ( 95,  60, 145);
+const QColor CLR_HEADER_IMG   (145,  95,  45);
+const QColor CLR_RULER        ( 18,  19,  22);
+const QColor CLR_GRID         ( 44,  45,  52);
+const QColor CLR_GRID_MAJOR   ( 70,  72,  82);
+const QColor CLR_TEXT         (230, 231, 236);
+const QColor CLR_TEXT_DIM     (140, 141, 148);
+const QColor CLR_TEXT_BRIGHT  (255, 255, 255);
+const QColor CLR_PLAYHEAD     (255,  80,  80);
+const QColor CLR_PLAYHEAD_TRI (255, 100, 100);
+const QColor CLR_CLIP_VID     ( 52, 122, 200);
+const QColor CLR_CLIP_VID_TOP ( 72, 152, 230);
+const QColor CLR_CLIP_AUD     (132,  82, 200);
+const QColor CLR_CLIP_AUD_TOP (162, 112, 230);
+const QColor CLR_CLIP_IMG     (220, 150,  60);
+const QColor CLR_CLIP_IMG_TOP (240, 175,  85);
+const QColor CLR_SELECTED     (255, 210,  80);
+const QColor CLR_BTN_ON       ( 14,  99, 212);
+const QColor CLR_BTN_OFF      ( 50,  51,  58);
+const QColor CLR_BTN_HOVER    ( 70,  72,  82);
+const QColor CLR_SNAP         (255, 255, 150);
+const QColor CLR_TRACK_BADGE_V( 30,  60, 110);
+const QColor CLR_TRACK_BADGE_A( 70,  45, 110);
+const QColor CLR_TRACK_BADGE_I(110,  75,  35);
 }
 
 TimelineWidget::TimelineWidget(QWidget* parent, EngineBridge* engine, uint64_t projectId)
@@ -170,7 +181,7 @@ QRect TimelineWidget::clipRect(int row, const TrackRow::Clip& c) const
     int x = xForFrame(c.startFrame);
     int w = static_cast<int>(c.durationFrames) * pixelsPerFrame_;
     int y = rulerHeight_ + row * rowHeight_;
-    return QRect(x, y + 4, w, rowHeight_ - 8);
+    return QRect(x, y + 6, w, rowHeight_ - 12);
 }
 
 uint64_t TimelineWidget::snapFrame(uint64_t frame, int threshold) const
@@ -396,48 +407,63 @@ void TimelineWidget::paintEvent(QPaintEvent*)
 
     QFont labelFont = font();
     labelFont.setPointSize(9);
+    labelFont.setBold(false);
     QFont rulerFont = font();
     rulerFont.setPointSize(8);
+    QFont smallFont = font();
+    smallFont.setPointSize(7);
+    QFont boldFont = font();
+    boldFont.setPointSize(9);
+    boldFont.setBold(true);
     QFontMetrics fm(labelFont);
+    QFontMetrics fmSmall(smallFont);
 
-    // Ruler
+    // === Ruler ===
     QRect rulerRect(headerWidth_, 0, width() - headerWidth_, rulerHeight_);
     p.fillRect(rulerRect, CLR_RULER);
     p.fillRect(0, 0, headerWidth_, rulerHeight_, CLR_HEADER_BG);
 
-    int frameStep = 30;
+    // Major/minor tick marks like Kdenlive
+    int ifps = 30;
+    int minorStep = ifps;       // every second
+    int majorStep = ifps * 5;   // every 5 seconds
+    int labelStep = ifps * 10;  // label every 10 seconds
+
     p.setPen(QPen(CLR_GRID, 1));
-    for (int f = 0; xForFrame(f) < width(); f += frameStep) {
+    for (int f = 0; xForFrame(f) < width(); f += minorStep) {
         int x = xForFrame(f);
-        p.drawLine(x, rulerHeight_ - 8, x, rulerHeight_);
-        if (f % (frameStep * 2) == 0) {
+        bool isMajor = (f % majorStep == 0);
+        int tickH = isMajor ? 12 : 6;
+        p.setPen(QPen(isMajor ? CLR_GRID_MAJOR : CLR_GRID, 1));
+        p.drawLine(x, rulerHeight_ - tickH, x, rulerHeight_);
+        if (f % labelStep == 0 && f > 0) {
             p.setPen(CLR_TEXT_DIM);
             p.setFont(rulerFont);
-            p.drawText(x + 4, rulerHeight_ - 10,
-                       Timecode::fromFrames(f, 30.0).mid(3, 5));  // MM:SS
-            p.setPen(CLR_GRID);
+            QString tc = Timecode::fromFrames(f, 30.0);
+            // Show HH:MM:SS for big values, MM:SS for small
+            if (f >= 3600 * ifps) tc = tc.mid(0, 8);
+            else tc = tc.mid(3, 5);
+            p.drawText(x + 4, rulerHeight_ - 14, tc);
         }
     }
 
-    p.setPen(QPen(CLR_GRID, 1));
+    p.setPen(QPen(CLR_GRID_MAJOR, 1));
     p.drawLine(0, rulerHeight_, width(), rulerHeight_);
     p.drawLine(headerWidth_, 0, headerWidth_, height());
 
-    // Tool indicator
+    // Tool indicator (top-left of header area)
     p.setPen(CLR_TEXT_DIM);
-    QFont toolFont = font();
-    toolFont.setPointSize(8);
-    p.setFont(toolFont);
+    p.setFont(smallFont);
     QString toolName;
     switch (tool_) {
-        case Tool::SelectTool:   toolName = "SELECT";  break;
-        case Tool::RazorTool:    toolName = "RAZOR";   break;
-        case Tool::SpacerTool:   toolName = "SPACER";  break;
-        case Tool::RippleTool:   toolName = "RIPPLE";  break;
-        case Tool::RollTool:     toolName = "ROLL";    break;
-        case Tool::SlipTool:     toolName = "SLIP";    break;
-        case Tool::SlideTool:    toolName = "SLIDE";   break;
-        case Tool::MulticamTool: toolName = "MULTICAM"; break;
+        case Tool::SelectTool:   toolName = QString::fromUtf8("\xE2\x97\x89  SELECT");  break;
+        case Tool::RazorTool:    toolName = QString::fromUtf8("\xE2\x9C\x82  RAZOR");   break;
+        case Tool::SpacerTool:   toolName = QString::fromUtf8("\xE2\x86\x94  SPACER");  break;
+        case Tool::RippleTool:   toolName = QString::fromUtf8("\xE2\x87\x84  RIPPLE");  break;
+        case Tool::RollTool:     toolName = QString::fromUtf8("\xE2\x86\xBB  ROLL");    break;
+        case Tool::SlipTool:     toolName = QString::fromUtf8("\xE2\x86\xBA  SLIP");    break;
+        case Tool::SlideTool:    toolName = QString::fromUtf8("\xE2\x86\xBB  SLIDE");   break;
+        case Tool::MulticamTool: toolName = QString::fromUtf8("\xE2\x96\xA3  MULTICAM"); break;
     }
     p.drawText(QRect(8, 0, headerWidth_ - 16, rulerHeight_),
                Qt::AlignVCenter | Qt::AlignLeft, toolName);
@@ -449,102 +475,142 @@ void TimelineWidget::paintEvent(QPaintEvent*)
         fnt.setItalic(true);
         p.setFont(fnt);
         p.drawText(rect().adjusted(0, rulerHeight_, 0, 0), Qt::AlignCenter,
-                   tr("No tracks yet.\nUse Track → Add Video/Audio/Image Track,\n"
+                   tr("No tracks yet.\nUse Track -> Add Video/Audio/Image Track,\n"
                       "then drag media from the Project Bin onto the timeline."));
         return;
     }
 
+    // === Track rows ===
     for (int i = 0; i < tracks_.size(); ++i) {
         const TrackRow& row = tracks_[i];
         QRect hdr  = trackHeaderRect(i);
         QRect body = trackBodyRect(i);
 
+        // Track badge color (vertical bar on left of header)
+        QColor badgeColor = (row.kind == 0) ? CLR_TRACK_BADGE_V :
+                            (row.kind == 1) ? CLR_TRACK_BADGE_A :
+                                               CLR_TRACK_BADGE_I;
         QColor hdrBg = (row.kind == 0) ? CLR_HEADER_VID :
                        (row.kind == 1) ? CLR_HEADER_AUD :
                                           CLR_HEADER_IMG;
         if (!row.visible) hdrBg = hdrBg.darker(180);
+
+        // Header background
         p.fillRect(hdr, hdrBg);
 
+        // Vertical track badge (left edge, like Kdenlive's track tag)
+        QRect badgeRect(hdr.x(), hdr.y(), 6, hdr.height());
+        p.fillRect(badgeRect, badgeColor);
+
+        // Body background
         QColor bodyBg = (i % 2 == 0) ? CLR_BG : CLR_ALT_BG;
         if (!row.visible) bodyBg = bodyBg.darker(140);
         p.fillRect(body, bodyBg);
 
+        // Grid lines in body
         p.setPen(QPen(CLR_GRID, 1));
-        for (int f = 0; xForFrame(f) < width(); f += frameStep) {
+        for (int f = 0; xForFrame(f) < width(); f += minorStep) {
             int x = xForFrame(f);
+            bool isMajor = (f % majorStep == 0);
+            p.setPen(QPen(isMajor ? CLR_GRID_MAJOR : CLR_GRID, 1));
             p.drawLine(x, body.top(), x, body.bottom());
         }
 
-        p.setPen(QPen(QColor(0, 0, 0, 160), 1));
+        // Header separators
+        p.setPen(QPen(QColor(0, 0, 0, 180), 1));
         p.drawRect(hdr.adjusted(0, 0, -1, -1));
-        p.setPen(QPen(CLR_GRID, 1));
+        p.setPen(QPen(CLR_GRID_MAJOR, 1));
         p.drawLine(body.right(), body.top(), body.right(), body.bottom());
         p.drawLine(0, hdr.bottom(), width(), hdr.bottom());
 
-        p.setPen(QColor(255, 255, 255, 230));
-        p.setFont(labelFont);
-        QString label = row.name;
-        if (fm.horizontalAdvance(label) > hdr.width() - 100) {
-            label = fm.elidedText(label, Qt::ElideRight, hdr.width() - 100);
+        // Track name (top-left of header, after badge)
+        p.setPen(CLR_TEXT_BRIGHT);
+        p.setFont(boldFont);
+        QString trackLabel = row.name;
+        if (fm.horizontalAdvance(trackLabel) > hdr.width() - 80) {
+            trackLabel = fm.elidedText(trackLabel, Qt::ElideRight, hdr.width() - 80);
         }
-        p.drawText(hdr.adjusted(10, 6, 100, -6),
-                   Qt::AlignVCenter | Qt::AlignLeft, label);
+        p.drawText(hdr.adjusted(14, 4, -8, -28),
+                   Qt::AlignVCenter | Qt::AlignLeft, trackLabel);
 
-        int btnSize = 22;
-        int btnY = hdr.center().y() - btnSize / 2;
+        // Track type label (small, below name)
+        p.setPen(CLR_TEXT_DIM);
+        p.setFont(smallFont);
+        QString kindLabel = (row.kind == 0) ? "VIDEO" :
+                            (row.kind == 1) ? "AUDIO" : "IMAGE";
+        p.drawText(hdr.adjusted(14, hdr.height() / 2, -8, -4),
+                   Qt::AlignVCenter | Qt::AlignLeft, kindLabel);
+
+        // Icon buttons (bottom-right of header)
+        int btnSize = 20;
+        int btnY = hdr.bottom() - btnSize - 6;
 
         auto drawBtn = [&](const QRect& btn, bool on, const QString& iconOn, const QString& iconOff) {
-            p.setBrush(on ? CLR_BTN_ON : CLR_BTN_OFF);
-            p.setPen(QPen(QColor(0, 0, 0, 200), 1));
-            p.drawRoundedRect(btn, 4, 4);
-            p.drawPixmap(btn.adjusted(4, 4, -4, -4),
+            // Button background
+            QColor btnBg = on ? CLR_BTN_ON : CLR_BTN_OFF;
+            p.setBrush(btnBg);
+            p.setPen(QPen(QColor(0, 0, 0, 180), 1));
+            p.drawRoundedRect(btn, 3, 3);
+            // Icon
+            int iconPad = 3;
+            p.drawPixmap(btn.adjusted(iconPad, iconPad, -iconPad, -iconPad),
                          QIcon(on ? iconOn : iconOff).pixmap(14, 14));
         };
 
-        drawBtn(QRect(hdr.right() - 84, btnY, btnSize, btnSize),
-                row.visible, ":/icons/eye.svg", ":/icons/eye-off.svg");
-        drawBtn(QRect(hdr.right() - 56, btnY, btnSize, btnSize),
+        // Three buttons: hide/mute/lock
+        int btnRight = hdr.right() - 8;
+        drawBtn(QRect(btnRight - btnSize, btnY, btnSize, btnSize),
+                !row.visible, ":/icons/eye-off.svg", ":/icons/eye.svg");
+        drawBtn(QRect(btnRight - btnSize * 2 - 4, btnY, btnSize, btnSize),
                 row.muted, ":/icons/speaker-off.svg", ":/icons/speaker-on.svg");
-        drawBtn(QRect(hdr.right() - 28, btnY, btnSize, btnSize),
+        drawBtn(QRect(btnRight - btnSize * 3 - 8, btnY, btnSize, btnSize),
                 row.locked, ":/icons/lock-closed.svg", ":/icons/lock-open.svg");
 
-        // Clips
+        // === Clips ===
         for (int ci = 0; ci < row.clips.size(); ++ci) {
             const auto& c = row.clips[ci];
             QRect cr = clipRect(i, c);
             if (cr.width() < 2) continue;
 
-            QColor clipBg = (row.kind == 0) ? CLR_CLIP_VID :
-                            (row.kind == 1) ? CLR_CLIP_AUD :
-                                                CLR_CLIP_IMG;
+            QColor clipBg     = (row.kind == 0) ? CLR_CLIP_VID :
+                                (row.kind == 1) ? CLR_CLIP_AUD :
+                                                   CLR_CLIP_IMG;
+            QColor clipTopBg  = (row.kind == 0) ? CLR_CLIP_VID_TOP :
+                                (row.kind == 1) ? CLR_CLIP_AUD_TOP :
+                                                   CLR_CLIP_IMG_TOP;
 
-            // Clip body
+            // Clip body — vertical gradient (lighter top, darker bottom)
             QLinearGradient grad(cr.topLeft(), cr.bottomLeft());
-            grad.setColorAt(0, clipBg.lighter(120));
-            grad.setColorAt(1, clipBg.darker(115));
+            grad.setColorAt(0,   clipTopBg);
+            grad.setColorAt(0.5, clipBg);
+            grad.setColorAt(1,   clipBg.darker(125));
             p.setBrush(grad);
-            p.setPen(QPen(QColor(0, 0, 0, 160), 1));
-            p.drawRoundedRect(cr, 3, 3);
+            p.setPen(QPen(QColor(0, 0, 0, 200), 1));
+            p.drawRoundedRect(cr, 4, 4);
 
-            // Thumbnail strip for video / image clips
+            // Top color bar (clip type indicator, 3px tall)
+            QRect topBar(cr.x(), cr.y(), cr.width(), 3);
+            p.setPen(Qt::NoPen);
+            p.setBrush(clipTopBg.lighter(110));
+            p.drawRoundedRect(topBar, 4, 4);
+            // Cover the bottom rounded corners of the top bar
+            p.fillRect(QRect(cr.x(), cr.y() + 2, cr.width(), 1), clipTopBg.lighter(110));
+
+            // Thumbnail strip for video/image clips (tile across full width)
             if ((row.kind == 0 || row.kind == 2) && prober_ && prober_->hasThumbnail(c.path)) {
                 QPixmap thumb = prober_->thumbnail(c.path);
-                if (!thumb.isNull() && cr.width() > 20) {
-                    int thumbW = thumb.width();
-                    int thumbH = cr.height() - 4;
-                    QRect target(cr.x() + 2, cr.y() + 2, thumbW, thumbH);
+                if (!thumb.isNull() && cr.width() > 16) {
+                    int thumbH = cr.height() - 22;  // leave room for label band
+                    int thumbW = thumbH * thumb.width() / thumb.height();
+                    if (thumbW < 1) thumbW = thumbH * 16 / 9;
                     p.save();
-                    p.setClipRect(cr.adjusted(1, 1, -1, -1));
-                    // Tile the thumbnail across the clip width
+                    p.setClipRect(cr.adjusted(1, 4, -1, -18));
                     int x = cr.x() + 2;
                     while (x < cr.right() - 2) {
-                        p.drawPixmap(x, cr.y() + 2, thumbW, thumbH, thumb);
+                        p.drawPixmap(x, cr.y() + 4, thumbW, thumbH, thumb);
                         x += thumbW;
                     }
                     p.restore();
-                    // Overlay a translucent dark band at the bottom for label readability
-                    p.fillRect(QRect(cr.x(), cr.bottom() - 18, cr.width(), 14),
-                               QColor(0, 0, 0, 140));
                 }
             }
 
@@ -553,48 +619,89 @@ void TimelineWidget::paintEvent(QPaintEvent*)
                 QPixmap wave = prober_->thumbnail(c.path);
                 if (!wave.isNull()) {
                     p.save();
-                    p.setClipRect(cr.adjusted(1, 1, -1, -1));
-                    p.drawPixmap(cr.x() + 2, cr.y() + 2,
-                                  cr.width() - 4, cr.height() - 4, wave);
+                    p.setClipRect(cr.adjusted(1, 4, -1, -4));
+                    p.drawPixmap(cr.x() + 2, cr.y() + 4,
+                                  cr.width() - 4, cr.height() - 8, wave);
                     p.restore();
                 }
             }
 
-            // Selected highlight
+            // Bottom label band (semi-transparent dark for readability)
+            QRect labelBand(cr.x(), cr.bottom() - 16, cr.width(), 14);
+            p.fillRect(labelBand, QColor(0, 0, 0, 160));
+
+            // Selected highlight (orange border, drawn before label)
             if (selectedRow_ == i && selectedClipIdx_ == ci) {
                 p.setBrush(Qt::NoBrush);
                 p.setPen(QPen(CLR_SELECTED, 2));
-                p.drawRoundedRect(cr.adjusted(1, 1, -1, -1), 3, 3);
+                p.drawRoundedRect(cr.adjusted(1, 1, -1, -1), 4, 4);
             }
 
-            // Trim handles
+            // Trim handles (visible only when clip is wide enough)
             if (cr.width() > 24) {
-                p.setPen(QPen(QColor(255, 255, 255, 100), 1));
-                p.drawLine(cr.x() + 3, cr.y() + 4, cr.x() + 3, cr.bottom() - 4);
-                p.drawLine(cr.right() - 3, cr.y() + 4, cr.right() - 3, cr.bottom() - 4);
+                p.setPen(QPen(QColor(255, 255, 255, 130), 1));
+                // Left handle
+                p.drawLine(cr.x() + 3, cr.y() + 6, cr.x() + 3, cr.bottom() - 6);
+                // Right handle
+                p.drawLine(cr.right() - 3, cr.y() + 6, cr.right() - 3, cr.bottom() - 6);
             }
 
-            // Label
-            p.setPen(QColor(255, 255, 255));
+            // Clip label (name)
+            p.setPen(CLR_TEXT_BRIGHT);
             p.setFont(labelFont);
             QString clipLabel = c.name;
-            if (fm.horizontalAdvance(clipLabel) > cr.width() - 10) {
-                clipLabel = fm.elidedText(clipLabel, Qt::ElideRight, cr.width() - 10);
+            int labelWidth = cr.width() - 12;
+            // If clip is wide enough, show duration too
+            QString durStr;
+            if (cr.width() > 100) {
+                double sec = c.durationFrames / 30.0;
+                durStr = QString::asprintf("%.1fs", sec);
+                labelWidth -= fmSmall.horizontalAdvance(durStr) + 8;
             }
-            p.drawText(cr.adjusted(8, 2, -8, -2),
-                       Qt::AlignBottom | Qt::AlignLeft, clipLabel);
+            if (fm.horizontalAdvance(clipLabel) > labelWidth) {
+                clipLabel = fm.elidedText(clipLabel, Qt::ElideRight, labelWidth);
+            }
+            p.drawText(QRect(cr.x() + 6, cr.bottom() - 16, labelWidth, 14),
+                       Qt::AlignVCenter | Qt::AlignLeft, clipLabel);
+
+            // Duration badge (right side of label band)
+            if (!durStr.isEmpty()) {
+                p.setPen(QColor(255, 255, 255, 180));
+                p.setFont(smallFont);
+                p.drawText(QRect(cr.right() - fmSmall.horizontalAdvance(durStr) - 8,
+                                 cr.bottom() - 16, fmSmall.horizontalAdvance(durStr) + 4, 14),
+                           Qt::AlignVCenter | Qt::AlignRight, durStr);
+            }
+
+            // Fade in/out indicators (dashed diagonal lines)
+            if (c.adjust.fadeIn > 0) {
+                int fx = cr.x() + static_cast<int>(c.adjust.fadeIn) * pixelsPerFrame_;
+                p.setPen(QPen(QColor(255, 255, 255, 200), 1, Qt::DashLine));
+                p.drawLine(cr.x(), cr.bottom() - 4, fx, cr.y() + 4);
+            }
+            if (c.adjust.fadeOut > 0) {
+                int fx = cr.right() - static_cast<int>(c.adjust.fadeOut) * pixelsPerFrame_;
+                p.setPen(QPen(QColor(255, 255, 255, 200), 1, Qt::DashLine));
+                p.drawLine(fx, cr.y() + 4, cr.right(), cr.bottom() - 4);
+            }
         }
     }
 
-    // Playhead
+    // === Playhead ===
     int phX = xForFrame(playheadFrame_);
-    p.setPen(QPen(CLR_PLAYHEAD, 2));
-    p.drawLine(phX, 0, phX, height());
+    // Vertical line
+    p.setPen(QPen(CLR_PLAYHEAD, 1));
+    p.drawLine(phX, rulerHeight_, phX, height());
+    // Triangle on top of ruler
+    p.setBrush(CLR_PLAYHEAD_TRI);
+    p.setPen(QPen(CLR_PLAYHEAD, 1));
+    QPolygon tri;
+    tri << QPoint(phX - 8, 0) << QPoint(phX + 8, 0) << QPoint(phX, 12);
+    p.drawPolygon(tri);
+    // Small handle dot at the bottom of the triangle
     p.setBrush(CLR_PLAYHEAD);
     p.setPen(Qt::NoPen);
-    QPolygon tri;
-    tri << QPoint(phX - 7, 0) << QPoint(phX + 7, 0) << QPoint(phX, 10);
-    p.drawPolygon(tri);
+    p.drawEllipse(QPoint(phX, 6), 3, 3);
 
     // Snap indicator (during drag)
     if (dragMode_ == DragMode::MoveClip || dragMode_ == DragMode::TrimClipLeft ||
@@ -607,7 +714,6 @@ void TimelineWidget::paintEvent(QPaintEvent*)
         }
     }
 }
-
 void TimelineWidget::handleSelectPress(const QPoint& pos)
 {
     int x = pos.x();
@@ -618,10 +724,28 @@ void TimelineWidget::handleSelectPress(const QPoint& pos)
         if (r >= 0) {
             const QRect hdr = trackHeaderRect(r);
             int bx = pos.x();
-            int right = hdr.right();
-            if (bx >= right - 84 && bx <= right - 62) toggleVisible(tracks_[r].id);
-            else if (bx >= right - 56 && bx <= right - 34) toggleMute(tracks_[r].id);
-            else if (bx >= right - 28 && bx <= right - 6) toggleLock(tracks_[r].id);
+            int by = pos.y();
+            int btnSize = 20;
+            int btnY = hdr.bottom() - btnSize - 6;
+            int btnRight = hdr.right() - 8;
+            // Check if click is in the button row
+            if (by >= btnY && by <= btnY + btnSize) {
+                // Hide button (rightmost)
+                if (bx >= btnRight - btnSize && bx <= btnRight) {
+                    toggleVisible(tracks_[r].id);
+                    return;
+                }
+                // Mute button
+                if (bx >= btnRight - btnSize * 2 - 4 && bx <= btnRight - btnSize - 4) {
+                    toggleMute(tracks_[r].id);
+                    return;
+                }
+                // Lock button
+                if (bx >= btnRight - btnSize * 3 - 8 && bx <= btnRight - btnSize * 2 - 8) {
+                    toggleLock(tracks_[r].id);
+                    return;
+                }
+            }
         }
         return;
     }
