@@ -1,10 +1,9 @@
 #pragma once
 
 #include <QListWidget>
+#include "MediaProber.h"
 
 namespace beta {
-
-class MediaProber;
 
 /// Left-side panel showing imported media assets. Each item is
 /// rendered by a custom delegate that paints:
@@ -36,7 +35,7 @@ protected:
 private slots:
     void onItemActivated(QListWidgetItem* item);
     void onThumbnailReady(const QString& path, const QPixmap& pix);
-    void onProbed(const QString& path, const class MediaProber::Info& info);
+    void onProbed(const QString& path, const MediaProber::Info& info);
 
 private:
     MediaProber* prober_ = nullptr;

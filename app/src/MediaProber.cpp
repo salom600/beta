@@ -14,6 +14,7 @@
 #include <QVideoSink>
 #include <QUrl>
 #include <QLinearGradient>
+#include <cmath>
 
 namespace beta {
 
@@ -62,7 +63,7 @@ MediaProber::MediaProber(QObject* parent)
     audioDecoder_ = new QAudioDecoder(this);
     connect(audioDecoder_, &QAudioDecoder::bufferReady,
             this, [this]() {
-        QAudioBuffer buf = audioDecoder_->readBuffer();
+        QAudioBuffer buf = audioDecoder_->read();
         if (!buf.isValid()) return;
         // Sum across channels, take abs peak per ~10ms chunk
         int channels = buf.format().channelCount();

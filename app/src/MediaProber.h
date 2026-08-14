@@ -6,6 +6,7 @@
 #include <QQueue>
 #include <QPixmap>
 #include <QVector>
+#include <QVideoFrame>
 
 class QMediaPlayer;
 class QVideoSink;
@@ -57,7 +58,7 @@ private slots:
     void onDurationChanged(qint64 dur);
     void onTracksChanged();
     void onMediaStatusChanged(int status);
-    void onVideoFrameChanged(const class QVideoFrame &frame);
+    void onVideoFrameChanged(const QVideoFrame &frame);
 
 private:
     void processNextProbe();

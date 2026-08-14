@@ -7,6 +7,7 @@
 #include <QMimeData>
 #include <QPainter>
 #include <QPixmap>
+#include <QStyledItemDelegate>
 #include <QStyle>
 #include <QUrl>
 #include <QVBoxLayout>
