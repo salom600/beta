@@ -3,6 +3,7 @@
 #include "EngineBridge.h"
 #include "MediaProber.h"
 #include "TimelineWidget.h"
+#include "UndoHelper.h"
 
 namespace beta {
 
@@ -34,80 +35,49 @@ void Project::importMedia(const QString& path)
 void Project::addClip(uint64_t trackId, const QString& path, const QString& name,
                       uint64_t startFrame, uint64_t durationFrames)
 {
-    auto* cmd = new AddClipCmd(engine_, projectId_, trackId, path, name,
+    // Wire the timeline's undo stack pointer through so TimelineFunctions
+    // can push onto it.
+    if (timeline_) timeline_->setUndoStack(undoStack_.get());
+    TimelineFunctions::addClip(engine_, projectId_, trackId, path, name,
                                 startFrame, durationFrames, timeline_);
-    undoStack_->push(cmd);
 }
 
 void Project::moveClip(uint64_t trackId, uint64_t clipId,
                        uint64_t oldStart, uint64_t newStart)
 {
-    auto* cmd = new MoveClipCmd(engine_, projectId_, trackId, clipId,
+    if (timeline_) timeline_->setUndoStack(undoStack_.get());
+    TimelineFunctions::moveClip(engine_, projectId_, trackId, clipId,
                                  oldStart, newStart, timeline_);
-    undoStack_->push(cmd);
 }
 
 void Project::trimClip(uint64_t trackId, uint64_t clipId,
                        uint64_t oldStart, uint64_t oldDuration, uint64_t oldTrimIn,
                        uint64_t newStart, uint64_t newDuration, uint64_t newTrimIn)
 {
-    auto* cmd = new TrimClipCmd(engine_, projectId_, trackId, clipId,
+    if (timeline_) timeline_->setUndoStack(undoStack_.get());
+    TimelineFunctions::trimClip(engine_, projectId_, trackId, clipId,
                                  oldStart, oldDuration, oldTrimIn,
                                  newStart, newDuration, newTrimIn, timeline_);
-    undoStack_->push(cmd);
 }
 
 void Project::splitClip(uint64_t trackId, uint64_t clipId, uint64_t splitFrame)
 {
-    auto* cmd = new SplitClipCmd(engine_, projectId_, trackId, clipId,
+    if (timeline_) timeline_->setUndoStack(undoStack_.get());
+    TimelineFunctions::splitClip(engine_, projectId_, trackId, clipId,
                                   splitFrame, timeline_);
-    undoStack_->push(cmd);
 }
 
 void Project::mergeClips(uint64_t trackId, uint64_t leftClipId, uint64_t rightClipId)
 {
-    // Snapshot left's current duration before merging
-    auto snap = engine_->snapshot(projectId_);
-    uint64_t leftDur = 0;
-    for (const auto& t : snap.tracks) {
-        if (t.id == trackId) {
-            for (const auto& c : t.clips) {
-                if (c.id == leftClipId) leftDur = c.durationFrames;
-            }
-        }
-    }
-    auto* cmd = new MergeClipsCmd(engine_, projectId_, trackId,
-                                   leftClipId, rightClipId, leftDur, timeline_);
-    undoStack_->push(cmd);
+    if (timeline_) timeline_->setUndoStack(undoStack_.get());
+    TimelineFunctions::mergeClips(engine_, projectId_, trackId,
+                                   leftClipId, rightClipId, timeline_);
 }
 
 void Project::removeClip(uint64_t trackId, uint64_t clipId)
 {
-    // Snapshot the clip's state before pushing the command
-    auto snap = engine_->snapshot(projectId_);
-    QString path, name;
-    uint64_t startFrame = 0, duration = 0, trimIn = 0;
-    bool found = false;
-    for (const auto& t : snap.tracks) {
-        if (t.id == trackId) {
-            for (const auto& c : t.clips) {
-                if (c.id == clipId) {
-                    path = c.mediaPath;
-                    name = c.mediaName;
-                    startFrame = c.startFrame;
-                    duration = c.durationFrames;
-                    trimIn = c.trimInFrames;
-                    found = true;
-                    break;
-                }
-            }
-        }
-    }
-    if (!found) return;
-    auto* cmd = new RemoveClipCmd(engine_, projectId_, trackId, clipId,
-                                   path, name, startFrame, duration, trimIn,
-                                   timeline_);
-    undoStack_->push(cmd);
+    if (timeline_) timeline_->setUndoStack(undoStack_.get());
+    TimelineFunctions::removeClip(engine_, projectId_, trackId, clipId, timeline_);
 }
 
 void Project::setAdjust(uint64_t trackId, uint64_t clipId,
@@ -129,17 +99,17 @@ void Project::setAdjust(uint64_t trackId, uint64_t clipId,
         }
     }
     if (!found) return;
-    auto* cmd = new SetAdjustCmd(engine_, projectId_, trackId, clipId,
+    if (timeline_) timeline_->setUndoStack(undoStack_.get());
+    TimelineFunctions::setAdjust(engine_, projectId_, trackId, clipId,
                                   oldAdjust, newAdjust, timeline_);
-    undoStack_->push(cmd);
 }
 
 void Project::setTrackState(uint64_t trackId, const EngineBridge::TrackState& newState)
 {
     auto oldState = engine_->trackState(projectId_, trackId);
-    auto* cmd = new SetTrackStateCmd(engine_, projectId_, trackId,
+    if (timeline_) timeline_->setUndoStack(undoStack_.get());
+    TimelineFunctions::setTrackState(engine_, projectId_, trackId,
                                       oldState, newState, timeline_);
-    undoStack_->push(cmd);
 }
 
 } // namespace beta

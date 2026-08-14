@@ -41,6 +41,8 @@ set(APP_HEADERS
     src/Commands.h
     src/Tool.h
     src/Timecode.h
+    src/UndoHelper.h
+    src/SnapModel.h
 )
 
 set(APP_RESOURCES

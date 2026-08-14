@@ -10,7 +10,7 @@ int main(int argc, char** argv)
 {
     QApplication::setOrganizationName("salom600");
     QApplication::setApplicationName("Beta");
-    QApplication::setApplicationVersion("0.4.0");
+    QApplication::setApplicationVersion("0.5.0");
 
     // Use Fusion style — it's the most consistent cross-platform base
     // for our custom dark theme.

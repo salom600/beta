@@ -4,8 +4,12 @@
 #include <QWidget>
 #include <cstdint>
 #include <utility>
+#include <memory>
 #include "EngineBridge.h"
 #include "Tool.h"
+#include "SnapModel.h"
+
+class QUndoStack;
 
 namespace beta {
 
@@ -79,6 +83,11 @@ public:
     int  zoom() const { return pixelsPerFrame_; }
 
     int  totalHeight() const;
+
+    /// Exposed so Commands.cpp can push FunctionalUndoCommand onto the
+    /// Project's undo stack.
+    class QUndoStack* undoStack() const { return undoStack_; }
+    void setUndoStack(QUndoStack* s) { undoStack_ = s; }
 
 signals:
     void clipSelected(const QString& name, const QString& path,
@@ -169,6 +178,12 @@ private:
     // Selected clip
     int selectedRow_    = -1;
     int selectedClipIdx_ = -1;
+
+    // Snap model (refcounted snap points)
+    std::unique_ptr<SnapModel> snapModel_;
+
+    // Undo stack (owned by Project; weak ref)
+    QUndoStack* undoStack_ = nullptr;
 };
 
 } // namespace beta

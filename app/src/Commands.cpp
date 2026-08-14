@@ -2,330 +2,295 @@
 #include "EngineBridge.h"
 #include "TimelineWidget.h"
 
+#include <QUndoStack>
+
 namespace beta {
+namespace TimelineFunctions {
 
-void TimelineCommand::refresh() const
+namespace {
+
+/// Push a `FunctionalUndoCommand` onto the Project's undo stack.
+/// `engine` doesn't own the stack — Project does — so we accept the
+/// stack externally. For now we route through a static helper.
+void pushUndo(TimelineWidget* timeline, const Fun& undo, const Fun& redo,
+              const QString& text)
 {
-    if (timeline_) timeline_->refreshTracks();
-}
-
-// ---- AddClipCmd ------------------------------------------------------
-
-AddClipCmd::AddClipCmd(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
-                       const QString& path, const QString& name,
-                       uint64_t startFrame, uint64_t durationFrames,
-                       TimelineWidget* timeline, QUndoCommand* parent)
-    : TimelineCommand(engine, projectId, timeline, parent)
-    , trackId_(trackId), path_(path), name_(name)
-    , startFrame_(startFrame), durationFrames_(durationFrames)
-{
-    setText(QObject::tr("Add clip"));
-}
-
-void AddClipCmd::redo()
-{
-    if (firstRun_) {
-        clipId_ = engine_->addClip(projectId_, trackId_, path_, name_,
-                                    startFrame_, durationFrames_);
-        firstRun_ = false;
+    // The timeline doesn't own a QUndoStack directly; the Project does.
+    // We rely on the timeline having a reference to it via setProject().
+    // For now, use a global accessor: TimelineWidget::undoStack().
+    // If null, fall back to executing redo eagerly (no undo).
+    if (timeline && timeline->undoStack()) {
+        timeline->undoStack()->push(new FunctionalUndoCommand(undo, redo, text));
     } else {
-        // Re-add with the same id (engine assigns a new one — for simplicity
-        // we accept that the id changes on redo; this is good enough for v0.4)
-        clipId_ = engine_->addClip(projectId_, trackId_, path_, name_,
-                                    startFrame_, durationFrames_);
+        // No stack — just run redo
+        redo();
     }
-    refresh();
 }
 
-void AddClipCmd::undo()
+} // namespace
+
+bool addClip(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
+             const QString& path, const QString& name,
+             uint64_t startFrame, uint64_t durationFrames,
+             TimelineWidget* timeline)
 {
-    if (clipId_ != 0) {
-        engine_->removeClip(projectId_, trackId_, clipId_);
-        clipId_ = 0;
-    }
-    refresh();
-}
+    // Eagerly perform the add
+    uint64_t clipId = engine->addClip(projectId, trackId, path, name,
+                                       startFrame, durationFrames);
+    if (clipId == 0) return false;
 
-// ---- RemoveClipCmd ---------------------------------------------------
+    // Build matching undo/redo lambdas
+    Fun undo = [engine, projectId, trackId, clipId]() -> bool {
+        engine->removeClip(projectId, trackId, clipId);
+        return true;
+    };
+    Fun redo = [engine, projectId, trackId, path, name, startFrame, durationFrames]() -> bool {
+        // Note: this will assign a NEW clip id, but the user-visible
+        // state is restored. This is acceptable for v0.5.
+        engine->addClip(projectId, trackId, path, name, startFrame, durationFrames);
+        return true;
+    };
 
-RemoveClipCmd::RemoveClipCmd(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
-                             uint64_t clipId, const QString& path, const QString& name,
-                             uint64_t startFrame, uint64_t durationFrames, uint64_t trimIn,
-                             TimelineWidget* timeline, QUndoCommand* parent)
-    : TimelineCommand(engine, projectId, timeline, parent)
-    , trackId_(trackId), clipId_(clipId), path_(path), name_(name)
-    , startFrame_(startFrame), durationFrames_(durationFrames), trimIn_(trimIn)
-{
-    setText(QObject::tr("Remove clip"));
-}
-
-void RemoveClipCmd::redo()
-{
-    engine_->removeClip(projectId_, trackId_, clipId_);
-    refresh();
-}
-
-void RemoveClipCmd::undo()
-{
-    // Re-create the clip with the same start/duration/trim. Note: the engine
-    // will assign a NEW clip id, but the user-visible state is restored.
-    uint64_t newId = engine_->addClip(projectId_, trackId_, path_, name_,
-                                       startFrame_, durationFrames_);
-    if (newId != 0) {
-        engine_->trimClip(projectId_, trackId_, newId, trimIn_, durationFrames_);
-        clipId_ = newId;
-    }
-    refresh();
-}
-
-// ---- MoveClipCmd -----------------------------------------------------
-
-MoveClipCmd::MoveClipCmd(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
-                         uint64_t clipId, uint64_t oldStart, uint64_t newStart,
-                         TimelineWidget* timeline, QUndoCommand* parent)
-    : TimelineCommand(engine, projectId, timeline, parent)
-    , trackId_(trackId), clipId_(clipId), oldStart_(oldStart), newStart_(newStart)
-{
-    setText(QObject::tr("Move clip"));
-}
-
-void MoveClipCmd::redo()
-{
-    engine_->moveClip(projectId_, trackId_, clipId_, newStart_);
-    refresh();
-}
-
-void MoveClipCmd::undo()
-{
-    engine_->moveClip(projectId_, trackId_, clipId_, oldStart_);
-    refresh();
-}
-
-bool MoveClipCmd::mergeWith(const QUndoCommand* other)
-{
-    if (other->id() != id()) return false;
-    const auto* m = static_cast<const MoveClipCmd*>(other);
-    if (m->trackId_ != trackId_ || m->clipId_ != clipId_) return false;
-    newStart_ = m->newStart_;
+    if (timeline) timeline->refreshTracks();
+    pushUndo(timeline, undo, redo, QObject::tr("Add clip"));
     return true;
 }
 
-// ---- TrimClipCmd -----------------------------------------------------
-
-TrimClipCmd::TrimClipCmd(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
-                         uint64_t clipId,
-                         uint64_t oldStart, uint64_t oldDuration, uint64_t oldTrimIn,
-                         uint64_t newStart, uint64_t newDuration, uint64_t newTrimIn,
-                         TimelineWidget* timeline, QUndoCommand* parent)
-    : TimelineCommand(engine, projectId, timeline, parent)
-    , trackId_(trackId), clipId_(clipId)
-    , oldStart_(oldStart), oldDuration_(oldDuration), oldTrimIn_(oldTrimIn)
-    , newStart_(newStart), newDuration_(newDuration), newTrimIn_(newTrimIn)
+bool removeClip(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
+                uint64_t clipId, TimelineWidget* timeline)
 {
-    setText(QObject::tr("Trim clip"));
-}
-
-void TrimClipCmd::redo()
-{
-    engine_->trimClip(projectId_, trackId_, clipId_, newTrimIn_, newDuration_);
-    engine_->moveClip(projectId_, trackId_, clipId_, newStart_);
-    refresh();
-}
-
-void TrimClipCmd::undo()
-{
-    engine_->trimClip(projectId_, trackId_, clipId_, oldTrimIn_, oldDuration_);
-    engine_->moveClip(projectId_, trackId_, clipId_, oldStart_);
-    refresh();
-}
-
-bool TrimClipCmd::mergeWith(const QUndoCommand* other)
-{
-    if (other->id() != id()) return false;
-    const auto* m = static_cast<const TrimClipCmd*>(other);
-    if (m->trackId_ != trackId_ || m->clipId_ != clipId_) return false;
-    newStart_     = m->newStart_;
-    newDuration_  = m->newDuration_;
-    newTrimIn_    = m->newTrimIn_;
-    return true;
-}
-
-// ---- SplitClipCmd ----------------------------------------------------
-
-SplitClipCmd::SplitClipCmd(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
-                           uint64_t clipId, uint64_t splitFrame,
-                           TimelineWidget* timeline, QUndoCommand* parent)
-    : TimelineCommand(engine, projectId, timeline, parent)
-    , trackId_(trackId), clipId_(clipId), splitFrame_(splitFrame)
-{
-    setText(QObject::tr("Split clip"));
-}
-
-void SplitClipCmd::redo()
-{
-    if (firstRun_) {
-        // Snapshot original duration so we can restore it on undo
-        auto snap = engine_->snapshot(projectId_);
-        for (const auto& t : snap.tracks) {
-            if (t.id == trackId_) {
-                for (const auto& c : t.clips) {
-                    if (c.id == clipId_) {
-                        origDuration_ = c.durationFrames;
-                        break;
-                    }
-                }
-            }
-        }
-        newClipId_ = engine_->splitClip(projectId_, trackId_, clipId_, splitFrame_);
-        firstRun_ = false;
-    } else {
-        // Re-split: original clip is now at origDuration_? No — on redo
-        // after undo, the original clip is back to its full duration.
-        // Re-splitting will produce a new right-hand clip.
-        newClipId_ = engine_->splitClip(projectId_, trackId_, clipId_, splitFrame_);
-    }
-    refresh();
-}
-
-void SplitClipCmd::undo()
-{
-    // To undo a split: find the right-hand clip (newClipId_) and merge it
-    // back into the left (clipId_).
-    if (newClipId_ != 0) {
-        engine_->mergeClips(projectId_, trackId_, clipId_, newClipId_);
-        newClipId_ = 0;
-    }
-    refresh();
-}
-
-// ---- MergeClipsCmd ---------------------------------------------------
-
-MergeClipsCmd::MergeClipsCmd(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
-                             uint64_t leftClipId, uint64_t rightClipId,
-                             uint64_t leftOrigDuration,
-                             TimelineWidget* timeline, QUndoCommand* parent)
-    : TimelineCommand(engine, projectId, timeline, parent)
-    , trackId_(trackId), leftClipId_(leftClipId), rightClipId_(rightClipId)
-    , leftOrigDuration_(leftOrigDuration)
-{
-    setText(QObject::tr("Merge clips"));
-}
-
-void MergeClipsCmd::redo()
-{
-    if (firstRun_) {
-        // Snapshot the left clip's current duration so we can restore it
-        auto snap = engine_->snapshot(projectId_);
-        for (const auto& t : snap.tracks) {
-            if (t.id == trackId_) {
-                for (const auto& c : t.clips) {
-                    if (c.id == leftClipId_) leftOrigDuration_ = c.durationFrames;
-                }
-            }
-        }
-        firstRun_ = false;
-    }
-    engine_->mergeClips(projectId_, trackId_, leftClipId_, rightClipId_);
-    refresh();
-}
-
-void MergeClipsCmd::undo()
-{
-    // We can't perfectly unmerge without knowing the right clip's original
-    // duration + trim. For v0.4, we re-add the right clip with the leftover
-    // duration by extending the left clip back to its original length and
-    // re-splitting at the boundary.
-    // This is approximate — for a true undo we'd need to snapshot the full
-    // right clip state. Acceptable for v0.4.
-    auto snap = engine_->snapshot(projectId_);
+    // Snapshot the clip's state before removing
+    auto snap = engine->snapshot(projectId);
     QString path, name;
     uint64_t startFrame = 0, duration = 0, trimIn = 0;
+    bool found = false;
     for (const auto& t : snap.tracks) {
-        if (t.id == trackId_) {
+        if (t.id == trackId) {
             for (const auto& c : t.clips) {
-                if (c.id == leftClipId_) {
+                if (c.id == clipId) {
                     path = c.mediaPath;
                     name = c.mediaName;
-                    startFrame = c.startFrame + c.durationFrames;
-                    duration = c.durationFrames - leftOrigDuration_;
-                    if (c.trimInFrames >= leftOrigDuration_)
-                        trimIn = c.trimInFrames + leftOrigDuration_;
-                    // Restore left clip's original duration
-                    engine_->trimClip(projectId_, trackId_, leftClipId_,
-                                      c.trimInFrames, leftOrigDuration_);
+                    startFrame = c.startFrame;
+                    duration = c.durationFrames;
+                    trimIn = c.trimInFrames;
+                    found = true;
                     break;
                 }
             }
         }
     }
-    // Re-add the right clip
-    if (!path.isEmpty() && duration > 0) {
-        uint64_t newId = engine_->addClip(projectId_, trackId_, path, name,
-                                           startFrame, duration);
-        if (newId) engine_->trimClip(projectId_, trackId_, newId, trimIn, duration);
-        rightClipId_ = newId;
-    }
-    refresh();
-}
+    if (!found) return false;
 
-// ---- SetAdjustCmd ----------------------------------------------------
+    // Eagerly remove
+    engine->removeClip(projectId, trackId, clipId);
 
-SetAdjustCmd::SetAdjustCmd(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
-                           uint64_t clipId,
-                           const EngineBridge::ClipAdjust& oldAdjust,
-                           const EngineBridge::ClipAdjust& newAdjust,
-                           TimelineWidget* timeline, QUndoCommand* parent)
-    : TimelineCommand(engine, projectId, timeline, parent)
-    , trackId_(trackId), clipId_(clipId)
-    , oldAdjust_(oldAdjust), newAdjust_(newAdjust)
-{
-    setText(QObject::tr("Edit clip properties"));
-}
+    Fun undo = [engine, projectId, trackId, path, name, startFrame, duration, trimIn]() -> bool {
+        uint64_t newId = engine->addClip(projectId, trackId, path, name, startFrame, duration);
+        if (newId != 0) {
+            engine->trimClip(projectId, trackId, newId, trimIn, duration);
+        }
+        return true;
+    };
+    Fun redo = [engine, projectId, trackId, clipId]() -> bool {
+        engine->removeClip(projectId, trackId, clipId);
+        return true;
+    };
 
-void SetAdjustCmd::redo()
-{
-    engine_->setClipAdjust(projectId_, trackId_, clipId_, newAdjust_);
-    refresh();
-}
-
-void SetAdjustCmd::undo()
-{
-    engine_->setClipAdjust(projectId_, trackId_, clipId_, oldAdjust_);
-    refresh();
-}
-
-bool SetAdjustCmd::mergeWith(const QUndoCommand* other)
-{
-    if (other->id() != id()) return false;
-    const auto* m = static_cast<const SetAdjustCmd*>(other);
-    if (m->trackId_ != trackId_ || m->clipId_ != clipId_) return false;
-    newAdjust_ = m->newAdjust_;
+    if (timeline) timeline->refreshTracks();
+    pushUndo(timeline, undo, redo, QObject::tr("Remove clip"));
     return true;
 }
 
-// ---- SetTrackStateCmd ------------------------------------------------
-
-SetTrackStateCmd::SetTrackStateCmd(EngineBridge* engine, uint64_t projectId,
-                                   uint64_t trackId,
-                                   EngineBridge::TrackState oldState,
-                                   EngineBridge::TrackState newState,
-                                   TimelineWidget* timeline, QUndoCommand* parent)
-    : TimelineCommand(engine, projectId, timeline, parent)
-    , trackId_(trackId), oldState_(oldState), newState_(newState)
+bool moveClip(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
+              uint64_t clipId, uint64_t oldStart, uint64_t newStart,
+              TimelineWidget* timeline)
 {
-    setText(QObject::tr("Toggle track state"));
+    if (oldStart == newStart) return false;
+
+    // Eagerly move
+    engine->moveClip(projectId, trackId, clipId, newStart);
+
+    Fun undo = [engine, projectId, trackId, clipId, oldStart]() -> bool {
+        engine->moveClip(projectId, trackId, clipId, oldStart);
+        return true;
+    };
+    Fun redo = [engine, projectId, trackId, clipId, newStart]() -> bool {
+        engine->moveClip(projectId, trackId, clipId, newStart);
+        return true;
+    };
+
+    if (timeline) timeline->refreshTracks();
+    pushUndo(timeline, undo, redo, QObject::tr("Move clip"));
+    return true;
 }
 
-void SetTrackStateCmd::redo()
+bool trimClip(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
+              uint64_t clipId,
+              uint64_t oldStart, uint64_t oldDuration, uint64_t oldTrimIn,
+              uint64_t newStart, uint64_t newDuration, uint64_t newTrimIn,
+              TimelineWidget* timeline)
 {
-    engine_->setTrackState(projectId_, trackId_, newState_);
-    refresh();
+    // Eagerly trim + move
+    engine->trimClip(projectId, trackId, clipId, newTrimIn, newDuration);
+    engine->moveClip(projectId, trackId, clipId, newStart);
+
+    Fun undo = [engine, projectId, trackId, clipId,
+                oldStart, oldDuration, oldTrimIn]() -> bool {
+        engine->trimClip(projectId, trackId, clipId, oldTrimIn, oldDuration);
+        engine->moveClip(projectId, trackId, clipId, oldStart);
+        return true;
+    };
+    Fun redo = [engine, projectId, trackId, clipId,
+                newStart, newDuration, newTrimIn]() -> bool {
+        engine->trimClip(projectId, trackId, clipId, newTrimIn, newDuration);
+        engine->moveClip(projectId, trackId, clipId, newStart);
+        return true;
+    };
+
+    if (timeline) timeline->refreshTracks();
+    pushUndo(timeline, undo, redo, QObject::tr("Trim clip"));
+    return true;
 }
 
-void SetTrackStateCmd::undo()
+bool splitClip(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
+               uint64_t clipId, uint64_t splitFrame,
+               TimelineWidget* timeline)
 {
-    engine_->setTrackState(projectId_, trackId_, oldState_);
-    refresh();
+    // Snapshot original duration
+    auto snap = engine->snapshot(projectId);
+    uint64_t origDuration = 0;
+    bool found = false;
+    for (const auto& t : snap.tracks) {
+        if (t.id == trackId) {
+            for (const auto& c : t.clips) {
+                if (c.id == clipId) {
+                    origDuration = c.durationFrames;
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (!found) return false;
+
+    // Eagerly split
+    uint64_t newClipId = engine->splitClip(projectId, trackId, clipId, splitFrame);
+    if (newClipId == 0) return false;
+
+    // Undo = merge the new clip back into the original
+    Fun undo = [engine, projectId, trackId, clipId, newClipId]() -> bool {
+        engine->mergeClips(projectId, trackId, clipId, newClipId);
+        return true;
+    };
+    // Redo = re-split (will produce a new right-hand clip id)
+    Fun redo = [engine, projectId, trackId, clipId, splitFrame]() -> bool {
+        engine->splitClip(projectId, trackId, clipId, splitFrame);
+        return true;
+    };
+
+    if (timeline) timeline->refreshTracks();
+    pushUndo(timeline, undo, redo, QObject::tr("Split clip"));
+    return true;
 }
 
+bool mergeClips(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
+                uint64_t leftClipId, uint64_t rightClipId,
+                TimelineWidget* timeline)
+{
+    // Snapshot left's duration before merging
+    auto snap = engine->snapshot(projectId);
+    uint64_t leftOrigDuration = 0;
+    QString rightPath, rightName;
+    uint64_t rightStart = 0, rightDuration = 0, rightTrimIn = 0;
+    bool found = false;
+    for (const auto& t : snap.tracks) {
+        if (t.id == trackId) {
+            for (const auto& c : t.clips) {
+                if (c.id == leftClipId) leftOrigDuration = c.durationFrames;
+                if (c.id == rightClipId) {
+                    rightPath = c.mediaPath;
+                    rightName = c.mediaName;
+                    rightStart = c.startFrame;
+                    rightDuration = c.durationFrames;
+                    rightTrimIn = c.trimInFrames;
+                    found = true;
+                }
+            }
+        }
+    }
+    if (!found) return false;
+
+    // Eagerly merge
+    engine->mergeClips(projectId, trackId, leftClipId, rightClipId);
+
+    // Undo = re-add the right clip and restore left's original duration
+    Fun undo = [engine, projectId, trackId, leftClipId,
+                leftOrigDuration, rightPath, rightName,
+                rightStart, rightDuration, rightTrimIn]() -> bool {
+        // Restore left's original duration
+        engine->trimClip(projectId, trackId, leftClipId, 0, leftOrigDuration);
+        // Re-add the right clip
+        uint64_t newId = engine->addClip(projectId, trackId, rightPath, rightName,
+                                          rightStart, rightDuration);
+        if (newId != 0) {
+            engine->trimClip(projectId, trackId, newId, rightTrimIn, rightDuration);
+        }
+        return true;
+    };
+    Fun redo = [engine, projectId, trackId, leftClipId, rightClipId]() -> bool {
+        engine->mergeClips(projectId, trackId, leftClipId, rightClipId);
+        return true;
+    };
+
+    if (timeline) timeline->refreshTracks();
+    pushUndo(timeline, undo, redo, QObject::tr("Merge clips"));
+    return true;
+}
+
+bool setAdjust(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
+               uint64_t clipId,
+               const EngineBridge::ClipAdjust& oldAdjust,
+               const EngineBridge::ClipAdjust& newAdjust,
+               TimelineWidget* timeline)
+{
+    // Eagerly apply
+    engine->setClipAdjust(projectId, trackId, clipId, newAdjust);
+
+    Fun undo = [engine, projectId, trackId, clipId, oldAdjust]() -> bool {
+        engine->setClipAdjust(projectId, trackId, clipId, oldAdjust);
+        return true;
+    };
+    Fun redo = [engine, projectId, trackId, clipId, newAdjust]() -> bool {
+        engine->setClipAdjust(projectId, trackId, clipId, newAdjust);
+        return true;
+    };
+
+    if (timeline) timeline->refreshTracks();
+    pushUndo(timeline, undo, redo, QObject::tr("Edit clip properties"));
+    return true;
+}
+
+bool setTrackState(EngineBridge* engine, uint64_t projectId, uint64_t trackId,
+                   const EngineBridge::TrackState& oldState,
+                   const EngineBridge::TrackState& newState,
+                   TimelineWidget* timeline)
+{
+    // Eagerly apply
+    engine->setTrackState(projectId, trackId, newState);
+
+    Fun undo = [engine, projectId, trackId, oldState]() -> bool {
+        engine->setTrackState(projectId, trackId, oldState);
+        return true;
+    };
+    Fun redo = [engine, projectId, trackId, newState]() -> bool {
+        engine->setTrackState(projectId, trackId, newState);
+        return true;
+    };
+
+    if (timeline) timeline->refreshTracks();
+    pushUndo(timeline, undo, redo, QObject::tr("Toggle track state"));
+    return true;
+}
+
+} // namespace TimelineFunctions
 } // namespace beta

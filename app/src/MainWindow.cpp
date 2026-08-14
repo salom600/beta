@@ -97,12 +97,18 @@ void MainWindow::keyPressEvent(QKeyEvent* e)
 
     switch (e->key()) {
     case Qt::Key_Space:      onPlayPause(); return;
-    case Qt::Key_S:          if (e->modifiers() == Qt::NoModifier) { onSplit(); return; } break;
-    case Qt::Key_M:          if (e->modifiers() == Qt::NoModifier) { onMerge(); return; } break;
-    case Qt::Key_V:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::Select); return; } break;
-    case Qt::Key_C:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::Razor);  return; } break;
-    case Qt::Key_T:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::Spacer); return; } break;
-    case Qt::Key_H:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::Hand);   return; } break;
+    // Kdenlive shortcuts: S=select, X=razor, M=spacer (NOT V/C/T like Premiere)
+    case Qt::Key_S:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::SelectTool); return; } break;
+    case Qt::Key_X:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::RazorTool);  return; } break;
+    case Qt::Key_M:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::SpacerTool); return; } break;
+    case Qt::Key_R:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::RippleTool); return; } break;
+    // Keep V/C/T/H as alternates for Premiere-familiar users
+    case Qt::Key_V:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::SelectTool); return; } break;
+    case Qt::Key_C:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::RazorTool);  return; } break;
+    case Qt::Key_T:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::SpacerTool); return; } break;
+    case Qt::Key_H:          if (e->modifiers() == Qt::NoModifier) { setTool(Tool::SpacerTool); return; } break;
+    // Shift+S = split (was S in v0.4; now S=select per Kdenlive)
+    case Qt::Key_P:          if (e->modifiers() == Qt::NoModifier) { onSplit(); return; } break;
     case Qt::Key_Delete:
     case Qt::Key_Backspace: onDelete(); return;
     case Qt::Key_Home:      onSkipStart(); return;
@@ -203,8 +209,8 @@ void MainWindow::setupActions()
     connect(actAddImageTrack_, &QAction::triggered, this, &MainWindow::onAddImageTrack);
 
     actSplit_ = new QAction(QIcon(":/icons/split.svg"), tr("Split"), this);
-    actSplit_->setShortcut(QKeySequence("S"));
-    actSplit_->setToolTip(tr("Split clip at playhead (S)"));
+    actSplit_->setShortcut(QKeySequence("P"));  // Kdenlive: S=select, so split=P
+    actSplit_->setToolTip(tr("Split clip at playhead (P)"));
     connect(actSplit_, &QAction::triggered, this, &MainWindow::onSplit);
 
     actCut_ = new QAction(QIcon(":/icons/cut.svg"), tr("Cut"), this);
@@ -213,8 +219,8 @@ void MainWindow::setupActions()
     connect(actCut_, &QAction::triggered, this, &MainWindow::onCut);
 
     actMerge_ = new QAction(QIcon(":/icons/merge.svg"), tr("Merge"), this);
-    actMerge_->setShortcut(QKeySequence("M"));
-    actMerge_->setToolTip(tr("Merge with next clip (M)"));
+    actMerge_->setShortcut(QKeySequence("Ctrl+M"));  // M=spacer, so merge=Ctrl+M
+    actMerge_->setToolTip(tr("Merge with next clip (Ctrl+M)"));
     connect(actMerge_, &QAction::triggered, this, &MainWindow::onMerge);
 
     actDelete_ = new QAction(QIcon(":/icons/delete.svg"), tr("Delete"), this);
@@ -245,25 +251,25 @@ void MainWindow::setupActions()
     actZoomOut_->setShortcut(QKeySequence("-"));
     connect(actZoomOut_, &QAction::triggered, this, &MainWindow::onZoomOut);
 
-    // Tools
+    // Tools — Kdenlive keyboard shortcuts (S/X/M, plus V/C/T/H alternates)
     toolGroup_ = new QActionGroup(this);
     toolGroup_->setExclusive(true);
 
     actToolSelect_ = new QAction(QIcon(":/icons/split.svg"), tr("Select Tool"), this);
-    actToolSelect_->setShortcut(QKeySequence("V"));
+    actToolSelect_->setShortcuts({QKeySequence("S"), QKeySequence("V")});
     actToolSelect_->setCheckable(true);
     actToolSelect_->setChecked(true);
     connect(actToolSelect_, &QAction::triggered, this, &MainWindow::onToolSelect);
     toolGroup_->addAction(actToolSelect_);
 
     actToolRazor_ = new QAction(QIcon(":/icons/cut.svg"), tr("Razor Tool"), this);
-    actToolRazor_->setShortcut(QKeySequence("C"));
+    actToolRazor_->setShortcuts({QKeySequence("X"), QKeySequence("C")});
     actToolRazor_->setCheckable(true);
     connect(actToolRazor_, &QAction::triggered, this, &MainWindow::onToolRazor);
     toolGroup_->addAction(actToolRazor_);
 
     actToolSpacer_ = new QAction(QIcon(":/icons/merge.svg"), tr("Spacer Tool"), this);
-    actToolSpacer_->setShortcut(QKeySequence("T"));
+    actToolSpacer_->setShortcuts({QKeySequence("M"), QKeySequence("T")});
     actToolSpacer_->setCheckable(true);
     connect(actToolSpacer_, &QAction::triggered, this, &MainWindow::onToolSpacer);
     toolGroup_->addAction(actToolSpacer_);
@@ -334,10 +340,16 @@ void MainWindow::setupDockWidgets()
     connect(timeline_, &TimelineWidget::toolChanged,
             this, [this](Tool::Kind t) {
         switch (t) {
-            case Tool::Select: actToolSelect_->setChecked(true); break;
-            case Tool::Razor:  actToolRazor_->setChecked(true);  break;
-            case Tool::Spacer: actToolSpacer_->setChecked(true); break;
-            case Tool::Hand:   actToolHand_->setChecked(true);   break;
+            case Tool::SelectTool:   actToolSelect_->setChecked(true); break;
+            case Tool::RazorTool:    actToolRazor_->setChecked(true);  break;
+            case Tool::SpacerTool:   actToolSpacer_->setChecked(true); break;
+            case Tool::RippleTool:
+            case Tool::RollTool:
+            case Tool::SlipTool:
+            case Tool::SlideTool:
+            case Tool::MulticamTool:
+                // Reserved tools default to select cursor
+                actToolSelect_->setChecked(true); break;
         }
     });
 
@@ -472,17 +484,22 @@ void MainWindow::setTool(Tool::Kind t)
 {
     timeline_->setTool(t);
     switch (t) {
-        case Tool::Select: actToolSelect_->setChecked(true); break;
-        case Tool::Razor:  actToolRazor_->setChecked(true);  break;
-        case Tool::Spacer: actToolSpacer_->setChecked(true); break;
-        case Tool::Hand:   actToolHand_->setChecked(true);   break;
+        case Tool::SelectTool:   actToolSelect_->setChecked(true); break;
+        case Tool::RazorTool:    actToolRazor_->setChecked(true);  break;
+        case Tool::SpacerTool:   actToolSpacer_->setChecked(true); break;
+        case Tool::RippleTool:
+        case Tool::RollTool:
+        case Tool::SlipTool:
+        case Tool::SlideTool:
+        case Tool::MulticamTool:
+            actToolSelect_->setChecked(true); break;
     }
 }
 
-void MainWindow::onToolSelect() { setTool(Tool::Select); }
-void MainWindow::onToolRazor()  { setTool(Tool::Razor);  }
-void MainWindow::onToolSpacer() { setTool(Tool::Spacer); }
-void MainWindow::onToolHand()   { setTool(Tool::Hand);   }
+void MainWindow::onToolSelect() { setTool(Tool::SelectTool); }
+void MainWindow::onToolRazor()  { setTool(Tool::RazorTool);  }
+void MainWindow::onToolSpacer() { setTool(Tool::SpacerTool); }
+void MainWindow::onToolHand()   { setTool(Tool::SelectTool); }
 
 void MainWindow::onImportMedia()
 {
